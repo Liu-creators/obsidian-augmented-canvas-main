@@ -7,7 +7,7 @@ import {
 	TextAreaComponent,
 	TextComponent,
 } from "obsidian";
-import ChatStreamPlugin from "./../AugmentedCanvasPlugin";
+import AugmentedCanvasPlugin from "./../AugmentedCanvasPlugin";
 import {
 	SystemPrompt,
 	getImageModels,
@@ -17,9 +17,9 @@ import { initLogDebug } from "src/logDebug";
 import { getResponse } from "src/utils/chatgpt";
 
 export class SettingsTab extends PluginSettingTab {
-	plugin: ChatStreamPlugin;
+	plugin: AugmentedCanvasPlugin;
 
-	constructor(app: App, plugin: ChatStreamPlugin) {
+	constructor(app: App, plugin: AugmentedCanvasPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
@@ -30,8 +30,8 @@ export class SettingsTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName("Model")
-			.setDesc("Select the DeepSeek model to use.")
+			.setName("模型")
+			.setDesc("选择要使用的 DeepSeek 模型。")
 			.addDropdown((cb) => {
 				getModels().forEach((model) => {
 					cb.addOption(model, model);
@@ -44,8 +44,8 @@ export class SettingsTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName("Image Model")
-			.setDesc("Note: DeepSeek does not support image generation. This setting is kept for compatibility but will not work.")
+			.setName("图像模型")
+			.setDesc("注意：DeepSeek API 不支持图像生成。此设置仅用于保持兼容性。如果使用 DeepSeek 进行图像生成，将会报错。如需使用图像生成功能，请切换到支持该功能的提供商（如 OpenAI）。")
 			.addDropdown((cb) => {
 				getImageModels().forEach((model) => {
 					cb.addOption(model, model);
@@ -58,13 +58,13 @@ export class SettingsTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName("API key")
+			.setName("API 密钥")
 			.setDesc(
-				"The API key to use when making requests - Get from DeepSeek (https://platform.deepseek.com)"
+				"请求时使用的 API 密钥 - 从 DeepSeek 获取 (https://platform.deepseek.com)"
 			)
 			.addText((text) => {
 				text.inputEl.type = "password";
-				text.setPlaceholder("API Key")
+				text.setPlaceholder("API 密钥")
 					.setValue(this.plugin.settings.apiKey)
 					.onChange(async (value) => {
 						this.plugin.settings.apiKey = value;
@@ -73,23 +73,23 @@ export class SettingsTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName("Test DeepSeek API key")
+			.setName("测试 DeepSeek API 密钥")
 			.setDesc(
-				"Send a small test request to DeepSeek to verify that your API key and network are working."
+				"向 DeepSeek 发送一个简单的测试请求，以验证您的 API 密钥和网络连接是否正常。"
 			)
 			.addButton((button) => {
-				button.setButtonText("Test").onClick(async () => {
+				button.setButtonText("测试").onClick(async () => {
 					const apiKey = this.plugin.settings.apiKey;
 					const model = this.plugin.settings.apiModel;
 
 					if (!apiKey) {
 						new Notice(
-							"Please set your DeepSeek API key before testing."
+							"请在测试前设置您的 DeepSeek API 密钥。"
 						);
 						return;
 					}
 
-					new Notice("Testing DeepSeek API key...");
+					new Notice("正在测试 DeepSeek API 密钥...");
 
 					try {
 						await getResponse(
@@ -98,7 +98,7 @@ export class SettingsTab extends PluginSettingTab {
 								{
 									role: "user",
 									content:
-										"Reply with a short message: DeepSeek test OK.",
+										"请回复一条短消息：DeepSeek 测试成功。",
 								},
 							],
 							{
@@ -108,24 +108,24 @@ export class SettingsTab extends PluginSettingTab {
 							}
 						);
 
-						new Notice("DeepSeek API key test succeeded ✅");
+						new Notice("DeepSeek API 密钥测试成功 ✅");
 					} catch (error: any) {
 						console.error("DeepSeek test error:", error);
 						const message =
-							error?.message || error?.toString() || "Unknown error";
+							error?.message || error?.toString() || "未知错误";
 						new Notice(
-							`DeepSeek API key test failed: ${message}`
+							`DeepSeek API 密钥测试失败：${message}`
 						);
 					}
 				});
 			});
 
 		new Setting(containerEl)
-			.setName("Youtube API key")
-			.setDesc("The Youtube API key used to fetch captions")
+			.setName("YouTube API 密钥")
+			.setDesc("用于获取字幕的 YouTube API 密钥")
 			.addText((text) => {
 				text.inputEl.type = "password";
-				text.setPlaceholder("API Key")
+				text.setPlaceholder("API 密钥")
 					.setValue(this.plugin.settings.youtubeApiKey)
 					.onChange(async (value) => {
 						this.plugin.settings.youtubeApiKey = value;
@@ -134,9 +134,9 @@ export class SettingsTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName("Default system prompt")
+			.setName("默认系统提示词 (System Prompt)")
 			.setDesc(
-				`The system prompt sent with each request to the API. \n(Note: you can override this by beginning a note stream with a note starting 'SYSTEM PROMPT'. The remaining content of that note will be used as system prompt.)`
+				`每次向 API 发送请求时附带的系统提示词。\n（注意：您可以通过在笔记流开头添加一个以 'SYSTEM PROMPT' 开头的笔记来覆盖此设置。该笔记的剩余内容将作为系统提示词。）`
 			)
 			.addTextArea((component) => {
 				component.inputEl.rows = 6;
@@ -153,8 +153,8 @@ export class SettingsTab extends PluginSettingTab {
 		this.displaySystemPromptsSettings(containerEl);
 
 		new Setting(containerEl)
-			.setName("Flashcards system prompt")
-			.setDesc(`The system prompt used to generate the flashcards file.`)
+			.setName("闪卡系统提示词")
+			.setDesc(`用于生成闪卡文件的系统提示词。`)
 			.addTextArea((component) => {
 				component.inputEl.rows = 6;
 				// component.inputEl.style.width = "300px";
@@ -168,9 +168,9 @@ export class SettingsTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName("Relevant questions system prompt")
+			.setName("相关问题系统提示词")
 			.setDesc(
-				`The system prompt used to generate relevant questions for the command "Insert relevant questions".`
+				`用于“插入相关问题”命令生成相关问题的系统提示词。`
 			)
 			.addTextArea((component) => {
 				component.inputEl.rows = 6;
@@ -187,9 +187,9 @@ export class SettingsTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName("Insert relevant questions files count")
+			.setName("插入相关问题时参考的文件数量")
 			.setDesc(
-				'The number of files that are taken into account by the "Insert relevant questions" command.'
+				'“插入相关问题”命令在生成时考虑的文件数量。必须是正整数。'
 			)
 			.addText((text) =>
 				text
@@ -198,68 +198,75 @@ export class SettingsTab extends PluginSettingTab {
 					)
 					.onChange(async (value) => {
 						const parsed = parseInt(value);
-						if (!isNaN(parsed)) {
-							this.plugin.settings.insertRelevantQuestionsFilesCount =
-								parsed;
-							await this.plugin.saveSettings();
+						if (isNaN(parsed) || parsed < 1) {
+							new Notice("请输入一个正整数（1 或更大）");
+							return;
 						}
+						this.plugin.settings.insertRelevantQuestionsFilesCount = parsed;
+						await this.plugin.saveSettings();
 					})
 			);
 
 		new Setting(containerEl)
-			.setName("Max input tokens")
+			.setName("最大输入 Token 数")
 			.setDesc(
-				"The maximum number of tokens to send (within model limit). 0 means as many as possible"
+				"发送的最大 Token 数量（在模型限制内）。0 表示尽可能多。必须是非负整数。"
 			)
 			.addText((text) =>
 				text
 					.setValue(this.plugin.settings.maxInputTokens.toString())
 					.onChange(async (value) => {
 						const parsed = parseInt(value);
-						if (!isNaN(parsed)) {
-							this.plugin.settings.maxInputTokens = parsed;
-							await this.plugin.saveSettings();
+						if (isNaN(parsed) || parsed < 0) {
+							new Notice("请输入一个非负整数（0 或更大）");
+							return;
 						}
+						this.plugin.settings.maxInputTokens = parsed;
+						await this.plugin.saveSettings();
 					})
 			);
 
 		new Setting(containerEl)
-			.setName("Max response tokens")
+			.setName("最大响应 Token 数")
 			.setDesc(
-				"The maximum number of tokens to return from the API. 0 means no limit. (A token is about 4 characters)."
+				"API 返回的最大 Token 数量。0 表示不限制。（1 个 Token 约为 4 个字符）。必须是非负整数。"
 			)
 			.addText((text) =>
 				text
 					.setValue(this.plugin.settings.maxResponseTokens.toString())
 					.onChange(async (value) => {
 						const parsed = parseInt(value);
-						if (!isNaN(parsed)) {
-							this.plugin.settings.maxResponseTokens = parsed;
-							await this.plugin.saveSettings();
+						if (isNaN(parsed) || parsed < 0) {
+							new Notice("请输入一个非负整数（0 或更大）");
+							return;
 						}
+						this.plugin.settings.maxResponseTokens = parsed;
+						await this.plugin.saveSettings();
 					})
 			);
 
 		new Setting(containerEl)
-			.setName("Max depth")
+			.setName("最大深度")
 			.setDesc(
-				"The maximum depth of ancestor notes to include. 0 means no limit."
+				"包含祖先笔记的最大深度。0 表示不限制。必须是非负整数。"
 			)
 			.addText((text) =>
 				text
 					.setValue(this.plugin.settings.maxDepth.toString())
 					.onChange(async (value) => {
 						const parsed = parseInt(value);
-						if (!isNaN(parsed)) {
-							this.plugin.settings.maxDepth = parsed;
-							await this.plugin.saveSettings();
+						if (isNaN(parsed) || parsed < 0) {
+							new Notice("请输入一个非负整数（0 或更大）");
+							return;
 						}
+						this.plugin.settings.maxDepth = parsed;
+						await this.plugin.saveSettings();
 					})
 			);
 
 		new Setting(containerEl)
-			.setName("Temperature")
-			.setDesc("Sampling temperature (0-2). 0 means no randomness.")
+			.setName("温度 (Temperature)")
+			.setDesc("采样温度 (0-2)。0 表示没有随机性。")
 			.addText((text) =>
 				text
 					.setValue(this.plugin.settings.temperature.toString())
@@ -288,8 +295,8 @@ export class SettingsTab extends PluginSettingTab {
 		// 	});
 
 		new Setting(containerEl)
-			.setName("Debug output")
-			.setDesc("Enable debug output in the console")
+			.setName("调试输出")
+			.setDesc("在控制台中启用调试输出")
 			.addToggle((component) => {
 				component
 					.setValue(this.plugin.settings.debug)
@@ -305,14 +312,14 @@ export class SettingsTab extends PluginSettingTab {
 		const setting = new Setting(containerEl);
 
 		setting
-			.setName("Add system prompts")
+			.setName("添加系统提示词")
 			.setClass("augmented-canvas-setting-item")
 			.setDesc(
-				`Create new highlight colors by providing a color name and using the color picker to set the hex code value. Don't forget to save the color before exiting the color picker. Drag and drop the highlight color to change the order for your highlighter component.`
+				`创建自定义系统提示词，以便在执行“插入系统提示词”或“在文件夹上运行系统提示词”等命令时快速选择。在下方提供名称和提示词内容。`
 			);
 
 		const nameInput = new TextComponent(setting.controlEl);
-		nameInput.setPlaceholder("Name");
+		nameInput.setPlaceholder("名称");
 		// colorInput.inputEl.addClass("highlighter-settings-color");
 
 		let promptInput: TextAreaComponent;
@@ -320,7 +327,7 @@ export class SettingsTab extends PluginSettingTab {
 			component.inputEl.rows = 6;
 			// component.inputEl.style.width = "300px";
 			// component.inputEl.style.fontSize = "10px";
-			component.setPlaceholder("Prompt");
+			component.setPlaceholder("提示词");
 			component.inputEl.addClass("augmented-canvas-settings-prompt");
 			promptInput = component;
 		});
@@ -328,7 +335,7 @@ export class SettingsTab extends PluginSettingTab {
 		setting.addButton((button) => {
 			button
 				.setIcon("lucide-plus")
-				.setTooltip("Add")
+				.setTooltip("添加")
 				.onClick(async (buttonEl: any) => {
 					let name = nameInput.inputEl.value;
 					const prompt = promptInput.inputEl.value;
@@ -337,10 +344,10 @@ export class SettingsTab extends PluginSettingTab {
 
 					if (!name || !prompt) {
 						name && !prompt
-							? new Notice("Prompt missing")
+							? new Notice("缺少提示词")
 							: !name && prompt
-							? new Notice("Name missing")
-							: new Notice("Values missing"); // else
+							? new Notice("缺少名称")
+							: new Notice("缺少内容"); // else
 						return;
 					}
 
@@ -385,7 +392,7 @@ export class SettingsTab extends PluginSettingTab {
 						this.display();
 					} else {
 						buttonEl.stopImmediatePropagation();
-						new Notice("This system prompt name already exists");
+						new Notice("该系统提示词名称已存在");
 					}
 				});
 		});
@@ -412,7 +419,7 @@ export class SettingsTab extends PluginSettingTab {
 				const buttonSave = new ButtonComponent(listElement);
 				buttonSave
 					.setIcon("lucide-save")
-					.setTooltip("Save")
+					.setTooltip("保存")
 					.onClick(async (buttonEl: any) => {
 						let name = nameInput.inputEl.value;
 						const prompt = promptInput.inputEl.value;
@@ -431,13 +438,13 @@ export class SettingsTab extends PluginSettingTab {
 							);
 						await this.plugin.saveSettings();
 						this.display();
-						new Notice("System prompt updated");
+						new Notice("系统提示词已更新");
 					});
 
 				const buttonDelete = new ButtonComponent(listElement);
 				buttonDelete
 					.setIcon("lucide-trash")
-					.setTooltip("Delete")
+					.setTooltip("删除")
 					.onClick(async (buttonEl: any) => {
 						let name = nameInput.inputEl.value;
 						const prompt = promptInput.inputEl.value;
@@ -450,7 +457,7 @@ export class SettingsTab extends PluginSettingTab {
 							);
 						await this.plugin.saveSettings();
 						this.display();
-						new Notice("System prompt deleted");
+						new Notice("系统提示词已删除");
 					});
 			}
 		);

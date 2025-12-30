@@ -50,15 +50,26 @@ export const handleGenerateImage = async (
 
 		const imageFileName = generateFileName("AI-Image");
 		const imageFolder = await getImageSaveFolderPath(app, settings);
-		// console.log({ imageFolder });
 		await saveBase64Image(app, `${imageFolder}/${imageFileName}.png`, b64Image);
-		new Notice(`Generating image "${imageFileName}" done successfully.`);
+		new Notice(`Image "${imageFileName}" generated successfully.`);
 
 		updateNodeAndSave(canvas, node, {
 			text: `![[${imageFolder}/${imageFileName}.png]]`,
 		});
-	} catch (error) {
-		new Notice(`Error: ${error.message || "DeepSeek API does not support image generation"}`);
+	} catch (error: any) {
+		const errorMessage = error?.message || String(error);
+		let userMessage = "Failed to generate image.";
+		
+		if (errorMessage.includes("DeepSeek") || errorMessage.includes("does not support image generation")) {
+			userMessage = "DeepSeek API does not support image generation. Please use a provider that supports image generation (e.g., OpenAI) or switch to a different API provider in settings.";
+		} else if (errorMessage.includes("API key") || errorMessage.includes("401") || errorMessage.includes("403")) {
+			userMessage = "Invalid API key or insufficient permissions. Please check your API key in settings.";
+		} else if (errorMessage.includes("rate limit") || errorMessage.includes("429")) {
+			userMessage = "Rate limit exceeded. Please try again later.";
+		}
+		
+		new Notice(`Error: ${userMessage}`);
+		console.error("Image generation error:", error);
 		canvas.removeNode(node);
 		return;
 	}

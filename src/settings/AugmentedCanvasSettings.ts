@@ -1,4 +1,3 @@
-import { FuseIndex } from "fuse.js";
 import { CHAT_MODELS, IMAGE_MODELS } from "src/openai/models";
 
 export interface SystemPrompt {

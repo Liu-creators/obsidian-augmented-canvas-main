@@ -107,14 +107,13 @@ export function noteGenerator(
 	) => {
 		// return { messages: [], tokenCount: 0 };
 
-		// Use a generic encoding for token counting (independent of actual model)
+		// 使用通用编码来计算 token 数（与具体模型无关）
 		const encoding = getEncoding("cl100k_base");
 
 		const messages: any[] = [];
 		let tokenCount = 0;
 
-		// Note: We are not checking for system prompt longer than context window.
-		// That scenario makes no sense, though.
+		// 说明：这里不单独检查 system prompt 是否超过上下文窗口，正常使用下不会这么写
 		const systemPrompt2 = systemPrompt || (await getSystemPrompt(node));
 		if (systemPrompt2) {
 			tokenCount += encoding.encode(systemPrompt2).length;
@@ -140,11 +139,11 @@ export function noteGenerator(
 				let keptNodeTokens: number;
 
 				if (tokenCount + nodeTokens.length > inputLimit) {
-					// will exceed input limit
+					// 将会超过模型允许的最大输入 token 数
 
 					shouldContinue = false;
 
-					// Leaving one token margin, just in case
+					// 预留 1 个 token 的安全余量，避免边界情况报错
 					const keepTokens = nodeTokens.slice(
 						0,
 						inputLimit - tokenCount - 1
@@ -312,33 +311,26 @@ export function noteGenerator(
 				let firstDelta = true;
 				await streamResponse(
 					settings.apiKey,
-					// settings.apiModel,
 					messages,
 					{
 						model: settings.apiModel,
 						max_tokens: settings.maxResponseTokens || undefined,
 						temperature: settings.temperature,
-						// max_tokens: getTokenLimit(settings) - tokenCount - 1,
 					},
-					(delta?: string) => {
-						// * Last call
-						if (!delta) {
-							// const height = calcHeight({
-							// 	text: created.text,
-							// 	parentHeight: node.height,
-							// });
-							// created.moveAndResize({
-							// 	height,
-							// 	width: created.width,
-							// 	x: created.x,
-							// 	y: created.y,
-							// });
+					(chunk: string | null, error?: Error) => {
+						// Handle errors
+						if (error) {
+							throw error;
+						}
+
+						// * Last call (stream completed)
+						if (!chunk) {
 							return;
 						}
 
 						let newText;
 						if (firstDelta) {
-							newText = delta;
+							newText = chunk;
 							firstDelta = false;
 
 							created.moveAndResize({
@@ -350,7 +342,6 @@ export function noteGenerator(
 						} else {
 							const height = calcHeight({
 								text: created.text,
-								// parentHeight: node.height,
 							});
 							if (height > created.height) {
 								created.moveAndResize({
@@ -361,7 +352,7 @@ export function noteGenerator(
 									y: created.y,
 								});
 							}
-							newText = created.text + delta;
+							newText = created.text + chunk;
 						}
 						created.setText(newText);
 					}

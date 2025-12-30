@@ -22,8 +22,10 @@ export const runPromptFolder = async (
 	const canvas = getActiveCanvas(app);
 	if (!canvas) return;
 
+	// 结果节点的初始宽高
 	const NODE_WIDTH = 800;
 	const NODE_HEIGHT = 300;
+	// 初始显示的占位文案
 	const text = `\`\`\`Calling AI (${settings.apiModel})...\`\`\``;
 	const created = createNode(canvas, {
 		pos: {
@@ -45,8 +47,10 @@ export const runPromptFolder = async (
 	});
 	// canvas.menu.menuEl.append(new MenuItem())
 
+	// 读取目标文件夹下所有 Markdown 内容，拼接为一个大输入
 	const folderContentText = await readFolderMarkdownContent(app, folder);
 
+	// 构建系统提示 + 用户输入（文件夹内容）消息
 	const messages: ChatCompletionMessageParam[] = [
 		{
 			role: "system",
@@ -59,49 +63,59 @@ export const runPromptFolder = async (
 	];
 
 	let firstDelta = true;
-	await streamResponse(
-		settings.apiKey,
-		// settings.apiModel,
-		messages,
-		{
-			model: settings.apiModel,
-			max_tokens: settings.maxResponseTokens || undefined,
-			// max_tokens: getTokenLimit(settings) - tokenCount - 1,
-		},
-		(delta?: string) => {
-			// * Last call
-			if (!delta) {
-				return;
-			}
+	try {
+		await streamResponse(
+			settings.apiKey,
+			messages,
+			{
+				model: settings.apiModel,
+				max_tokens: settings.maxResponseTokens || undefined,
+			},
+			(chunk: string | null, error?: Error) => {
+				// Handle errors
+				if (error) {
+					throw error;
+				}
 
-			let newText;
-			if (firstDelta) {
-				newText = delta;
-				firstDelta = false;
+				// * Last call (stream completed)
+				if (!chunk) {
+					return;
+				}
 
-				created.moveAndResize({
-					height: NOTE_MIN_HEIGHT,
-					width: created.width,
-					x: created.x,
-					y: created.y,
-				});
-			} else {
-				const height = calcHeight({
-					text: created.text,
-				});
-				if (height > created.height) {
+				let newText;
+				if (firstDelta) {
+					newText = chunk;
+					firstDelta = false;
+
 					created.moveAndResize({
-						height: created.height + NOTE_INCR_HEIGHT_STEP,
+						height: NOTE_MIN_HEIGHT,
 						width: created.width,
 						x: created.x,
 						y: created.y,
 					});
+				} else {
+					const height = calcHeight({
+						text: created.text,
+					});
+					if (height > created.height) {
+						created.moveAndResize({
+							height: created.height + NOTE_INCR_HEIGHT_STEP,
+							width: created.width,
+							x: created.x,
+							y: created.y,
+						});
+					}
+					newText = created.text + chunk;
 				}
-				newText = created.text + delta;
+				created.setText(newText);
 			}
-			created.setText(newText);
-		}
-	);
+		);
+	} catch (error: any) {
+		const errorMessage = error?.message || error?.toString() || "Unknown error";
+		new Notice(`Error calling DeepSeek AI: ${errorMessage}`);
+		canvas.removeNode(created);
+		return;
+	}
 
 	canvas.requestSave();
 };

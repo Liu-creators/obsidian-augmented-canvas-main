@@ -121,11 +121,14 @@ export default class AugmentedCanvasPlugin extends Plugin {
 		);
 	}
 
+	// 给 Canvas 右键菜单打补丁，增加 AI 相关按钮
 	patchCanvasMenu() {
 		const app = this.app;
 		const settings = this.settings;
 
+		// 实际执行打补丁的函数，如果成功返回 true
 		const patchMenu = () => {
+			// 尝试获取第一个 Canvas 视图
 			const canvasView = this.app.workspace
 				.getLeavesOfType("canvas")
 				.first()?.view;
@@ -133,18 +136,20 @@ export default class AugmentedCanvasPlugin extends Plugin {
 
 			// console.log("canvasView", canvasView);
 			// TODO: check if this is working (not working in my vault, but works in the sample vault (no .canvas ...))
+			// Canvas 内部的菜单对象
 			const menu = (canvasView as CanvasView)?.canvas?.menu;
 			if (!menu) return false;
 
 			const selection = menu.selection;
 			if (!selection) return false;
 
+			// 使用 monkey-around 给菜单的 render 方法打补丁
 			const menuUninstaller = around(menu.constructor.prototype, {
 				render: (next: any) =>
 					function (...args: any) {
 						const result = next.call(this, ...args);
 
-						// * If multi selection
+						// 如果当前不是单选节点，则不添加按钮
 						const maybeCanvasView =
 							app.workspace.getActiveViewOfType(
 								ItemView
@@ -158,10 +163,11 @@ export default class AugmentedCanvasPlugin extends Plugin {
 						// // * If group
 						// if (node.unknownData.type === "group") return result;
 
+						// 已经插入过 GPT 相关按钮则直接返回，避免重复
 						if (this.menuEl.querySelector(".gpt-menu-item"))
 							return result;
 
-						// * If Edge
+						// 如果当前选中的是一条连线（Edge）
 						const selectedNode = Array.from(
 							maybeCanvasView.canvas?.selection
 						)[0];
@@ -172,7 +178,7 @@ export default class AugmentedCanvasPlugin extends Plugin {
 							if (!selectedNode.unknownData.isGenerated) return;
 							addRegenerateResponse(app, settings, this.menuEl);
 						} else {
-						// * Handles "Call AI" button
+						// 处理「Call AI」按钮
 
 						addAskAIButton(app, settings, this.menuEl);
 
@@ -182,7 +188,7 @@ export default class AugmentedCanvasPlugin extends Plugin {
 
 							// if (!node?.unknownData.questions?.length) return;
 
-							// * Handles "Ask Question" button
+							// 处理「Ask question with AI」按钮
 							// TODO: refactor (as above)
 
 							const buttonEl_AskQuestion = createEl(
@@ -221,7 +227,7 @@ export default class AugmentedCanvasPlugin extends Plugin {
 								}
 							);
 
-							// * Handles "AI Questions" button
+							// 处理「AI generated questions」按钮（AI 生成问题）
 
 							const buttonEl_AIQuestions = createEl(
 								"button",

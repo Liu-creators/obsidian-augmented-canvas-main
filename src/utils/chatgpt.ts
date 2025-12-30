@@ -7,9 +7,10 @@ export type Message = {
 	content: string;
 };
 
+export type StreamCallback = (chunk: string | null, error?: Error) => void;
+
 export const streamResponse = async (
 	apiKey: string,
-	// prompt: string,
 	messages: ChatCompletionMessageParam[],
 	{
 		max_tokens,
@@ -20,7 +21,7 @@ export const streamResponse = async (
 		model?: string;
 		temperature?: number;
 	} = {},
-	cb: any
+	cb: StreamCallback
 ) => {
 	logDebug("Calling AI :", {
 		messages,
@@ -29,7 +30,6 @@ export const streamResponse = async (
 		temperature,
 		isJSON: false,
 	});
-	// console.log({ messages, max_tokens });
 	const openai = new OpenAI({
 		apiKey: apiKey,
 		baseURL: "https://api.deepseek.com/v1",
@@ -46,15 +46,15 @@ export const streamResponse = async (
 		});
 		for await (const chunk of stream) {
 			logDebug("AI chunk", { chunk });
-			// console.log({ completionChoice: chunk.choices[0] });
 			cb(chunk.choices[0]?.delta?.content || "");
 		}
+		// Stream completed successfully
 		cb(null);
 	} catch (error: any) {
 		logDebug("Stream error:", error);
-		// Pass error to callback
-		cb(null);
-		throw error;
+		const errorObj = error instanceof Error ? error : new Error(error?.message || String(error));
+		// Pass error to callback instead of throwing
+		cb(null, errorObj);
 	}
 };
 
