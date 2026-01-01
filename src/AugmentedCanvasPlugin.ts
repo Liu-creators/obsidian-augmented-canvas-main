@@ -10,40 +10,24 @@ import {
 	setIcon,
 	setTooltip,
 } from "obsidian";
-import { around } from "monkey-around";
-import {
-	addAskAIButton,
-	addRegenerateResponse,
-	handleCallGPT_Question,
-} from "./actions/canvasNodeMenuActions/advancedCanvas";
 import {
 	AugmentedCanvasSettings,
 	DEFAULT_SETTINGS,
 	SystemPrompt,
 } from "./settings/AugmentedCanvasSettings";
 import SettingsTab from "./settings/SettingsTab";
-import { CustomQuestionModal } from "./modals/CustomQuestionModal";
-import { CanvasNode } from "./obsidian/canvas-internal";
-import { handlePatchNoteMenu } from "./actions/menuPatches/noteMenuPatch";
-import { createCanvasGroup, getActiveCanvas } from "./utils";
 import SystemPromptsModal from "./modals/SystemPromptsModal";
-
-import { createFlashcards } from "./actions/canvasNodeContextMenuActions/flashcards";
-import { getFilesContent } from "./obsidian/fileUtil";
-import { getResponse } from "./utils/chatgpt";
+import { createFlashcards } from "./actions/contextMenu/flashcards";
 import { parseCsv } from "./utils/csvUtils";
 import { handleAddRelevantQuestions } from "./actions/commands/relevantQuestions";
-import { handleGenerateImage } from "./actions/canvasNodeContextMenuActions/generateImage";
 import { initLogDebug } from "./logDebug";
 import FolderSuggestModal from "./modals/FolderSuggestModal";
-import { calcHeight, createNode } from "./obsidian/canvas-patches";
 import { insertSystemPrompt } from "./actions/commands/insertSystemPrompt";
 import { runPromptFolder } from "./actions/commands/runPromptFolder";
-import { InputModal } from "./modals/InputModal";
-import { runYoutubeCaptions } from "./actions/commands/youtubeCaptions";
-import { insertWebsiteContent } from "./actions/commands/websiteContent";
+import { getActiveCanvas } from "./utils";
+import { createCanvasMenuPatch } from "./actions/menuPatches/canvasMenuPatch";
 
-// @ts-expect-error
+// @ts-expect-error - CSV text import
 import promptsCsvText from "./data/prompts.csv.txt";
 
 export default class AugmentedCanvasPlugin extends Plugin {
@@ -56,11 +40,6 @@ export default class AugmentedCanvasPlugin extends Plugin {
 		await this.loadSettings();
 		this.addSettingTab(new SettingsTab(this.app, this));
 
-		// this.registerCommands();
-		// this.registerCanvasEvents();
-		// this.registerCustomIcons();
-
-		// this.patchCanvas();
 		this.app.workspace.onLayoutReady(() => {
 			initLogDebug(this.settings);
 
@@ -72,45 +51,10 @@ export default class AugmentedCanvasPlugin extends Plugin {
 				this.fetchSystemPrompts();
 			}
 		});
-		// this.patchCanvasInteraction();
-		// this.patchCanvasNode();
-
-		// const generator = noteGenerator(this.app, this.settings, this.logDebug)
-		// const generator = noteGenerator(this.app);
-
-		// this.addSettingTab(new SettingsTab(this.app, this))
-
-		// this.addCommand({
-		// 	id: "next-note",
-		// 	name: "Create next note",
-		// 	callback: () => {
-		// 		generator.nextNote();
-		// 	},
-		// 	hotkeys: [
-		// 		{
-		// 			modifiers: ["Alt", "Shift"],
-		// 			key: "N",
-		// 		},
-		// 	],
-		// });
-
-		// this.addCommand({
-		// 	id: "generate-note",
-		// 	name: "Generate AI note",
-		// 	callback: () => {
-		// 		generator.generateNote();
-		// 	},
-		// 	hotkeys: [
-		// 		{
-		// 			modifiers: ["Alt", "Shift"],
-		// 			key: "G",
-		// 		},
-		// 	],
-		// });
 	}
 
 	onunload() {
-		// refreshAllCanvasView(this.app);
+		// Plugin cleanup if needed
 	}
 
 	async loadSettings() {
@@ -121,151 +65,15 @@ export default class AugmentedCanvasPlugin extends Plugin {
 		);
 	}
 
-	// 给 Canvas 右键菜单打补丁，增加 AI 相关按钮
+	/**
+	 * Patch the canvas menu to add AI-related buttons
+	 */
 	patchCanvasMenu() {
-		const app = this.app;
-		const settings = this.settings;
-
-		// 实际执行打补丁的函数，如果成功返回 true
-		const patchMenu = () => {
-			// 尝试获取第一个 Canvas 视图
-			const canvasView = this.app.workspace
-				.getLeavesOfType("canvas")
-				.first()?.view;
-			if (!canvasView) return false;
-
-			// console.log("canvasView", canvasView);
-			// TODO: check if this is working (not working in my vault, but works in the sample vault (no .canvas ...))
-			// Canvas 内部的菜单对象
-			const menu = (canvasView as CanvasView)?.canvas?.menu;
-			if (!menu) return false;
-
-			const selection = menu.selection;
-			if (!selection) return false;
-
-			// 使用 monkey-around 给菜单的 render 方法打补丁
-			const menuUninstaller = around(menu.constructor.prototype, {
-				render: (next: any) =>
-					function (...args: any) {
-						const result = next.call(this, ...args);
-
-						// 如果当前不是单选节点，则不添加按钮
-						const maybeCanvasView =
-							app.workspace.getActiveViewOfType(
-								ItemView
-							) as CanvasView | null;
-						if (
-							!maybeCanvasView ||
-							maybeCanvasView.canvas?.selection?.size !== 1
-						)
-							return result;
-
-						// // * If group
-						// if (node.unknownData.type === "group") return result;
-
-						// 已经插入过 GPT 相关按钮则直接返回，避免重复
-						if (this.menuEl.querySelector(".gpt-menu-item"))
-							return result;
-
-						// 如果当前选中的是一条连线（Edge）
-						const selectedNode = Array.from(
-							maybeCanvasView.canvas?.selection
-						)[0];
-						if (
-							// @ts-expect-error
-							selectedNode.from
-						) {
-							if (!selectedNode.unknownData.isGenerated) return;
-							addRegenerateResponse(app, settings, this.menuEl);
-						} else {
-						// 处理「Call AI」按钮
-
-						addAskAIButton(app, settings, this.menuEl);
-
-							// const node = <CanvasNode>(
-							// 	Array.from(this.canvas.selection)?.first()
-							// );
-
-							// if (!node?.unknownData.questions?.length) return;
-
-							// 处理「Ask question with AI」按钮
-							// TODO: refactor (as above)
-
-							const buttonEl_AskQuestion = createEl(
-								"button",
-								"clickable-icon gpt-menu-item"
-							);
-							setTooltip(
-								buttonEl_AskQuestion,
-								"Ask question with AI",
-								{
-									placement: "top",
-								}
-							);
-							setIcon(buttonEl_AskQuestion, "lucide-help-circle");
-							this.menuEl.appendChild(buttonEl_AskQuestion);
-							buttonEl_AskQuestion.addEventListener(
-								"click",
-								() => {
-									let modal = new CustomQuestionModal(
-										app,
-										(question2: string) => {
-											handleCallGPT_Question(
-												app,
-												settings,
-												<CanvasNode>(
-													Array.from(
-														this.canvas.selection
-													)?.first()!
-												),
-												question2
-											);
-											// Handle the input
-										}
-									);
-									modal.open();
-								}
-							);
-
-							// 处理「AI generated questions」按钮（AI 生成问题）
-
-							const buttonEl_AIQuestions = createEl(
-								"button",
-								"clickable-icon gpt-menu-item"
-							);
-							setTooltip(
-								buttonEl_AIQuestions,
-								"AI generated questions",
-								{
-									placement: "top",
-								}
-							);
-							setIcon(
-								buttonEl_AIQuestions,
-								"lucide-file-question"
-							);
-							this.menuEl.appendChild(buttonEl_AIQuestions);
-							buttonEl_AIQuestions.addEventListener("click", () =>
-								handlePatchNoteMenu(
-									buttonEl_AIQuestions,
-									this.menuEl,
-									{
-										app,
-										settings,
-										canvas: this.canvas,
-									}
-								)
-							);
-						}
-						return result;
-					},
-			});
-
-			this.register(menuUninstaller);
-			this.app.workspace.trigger("collapse-node:patched-canvas");
-
-			return true;
-		};
+		const patchMenu = createCanvasMenuPatch(
+			this.app,
+			this.settings,
+			(uninstaller) => this.register(uninstaller)
+		);
 
 		this.app.workspace.onLayoutReady(() => {
 			if (!patchMenu()) {
@@ -277,13 +85,11 @@ export default class AugmentedCanvasPlugin extends Plugin {
 		});
 	}
 
+	/**
+	 * Fetch system prompts from bundled CSV
+	 */
 	async fetchSystemPrompts() {
-		// const response = await fetch(
-		// 	"https://raw.githubusercontent.com/f/awesome-chatgpt-prompts/main/prompts.csv"
-		// );
-		// const text = await response.text();
 		const parsedCsv = parseCsv(promptsCsvText);
-		// console.log({ parsedCsv });
 
 		const systemPrompts: SystemPrompt[] = parsedCsv
 			.slice(1)
@@ -292,13 +98,15 @@ export default class AugmentedCanvasPlugin extends Plugin {
 				act: value[0],
 				prompt: value[1],
 			}));
-		// console.log({ systemPrompts });
 
 		this.settings.systemPrompts = systemPrompts;
 
 		this.saveSettings();
 	}
 
+	/**
+	 * Add flashcards menu item to canvas node context menu
+	 */
 	patchNoteContextMenu() {
 		const settings = this.settings;
 		// * no event name to add to Canvas context menu ("canvas-menu" does not exist)
@@ -312,84 +120,22 @@ export default class AugmentedCanvasPlugin extends Plugin {
 							createFlashcards(this.app, settings);
 						});
 				});
-				menu.addItem((item) => {
-					item.setTitle("Generate image")
-						.setIcon("lucide-image")
-						.onClick(() => {
-							handleGenerateImage(this.app, settings);
-						});
-				});
 			})
 		);
 	}
 
+	/**
+	 * Register plugin commands
+	 */
 	addCommands() {
 		const app = this.app;
-
-		// * Website to MD
-		// this.addCommand({
-		// 	id: "insert-website-content",
-		// 	name: "Insert the content of a website as markdown",
-		// 	checkCallback: (checking: boolean) => {
-		// 		if (checking) {
-		// 			// console.log({ checkCallback: checking });
-		// 			if (!getActiveCanvas(app)) return false;
-
-		// 			return true;
-		// 		}
-
-		// 		new InputModal(
-		// 			app,
-		// 			{
-		// 				label: "Enter a website url",
-		// 				buttonLabel: "Get website content",
-		// 			},
-		// 			(videoUrl: string) => {
-		// 				new Notice(`Scraping website content`);
-
-		// 				insertWebsiteContent(app, this.settings, videoUrl);
-		// 			}
-		// 		).open();
-		// 	},
-		// 	// callback: () => {},
-		// });
-
-		// * Youtube captions
-		// this.addCommand({
-		// 	id: "insert-youtube-caption",
-		// 	name: "Insert captions of a Youtube video",
-		// 	checkCallback: (checking: boolean) => {
-		// 		if (checking) {
-		// 			// console.log({ checkCallback: checking });
-		// 			if (!getActiveCanvas(app)) return false;
-
-		// 			return true;
-		// 		}
-
-		// 		new InputModal(
-		// 			app,
-		// 			{
-		// 				label: "Enter a youtube url",
-		// 				buttonLabel: "Scrape captions",
-		// 			},
-		// 			(videoUrl: string) => {
-		// 				new Notice(`Scraping captions of youtube video`);
-
-		// 				runYoutubeCaptions(app, this.settings, videoUrl);
-		// 			}
-		// 		).open();
-		// 	},
-		// 	// callback: () => {},
-		// });
 
 		this.addCommand({
 			id: "run-prompt-folder",
 			name: "Run a system prompt on a folder",
 			checkCallback: (checking: boolean) => {
 				if (checking) {
-					// console.log({ checkCallback: checking });
 					if (!getActiveCanvas(app)) return false;
-
 					return true;
 				}
 
@@ -402,7 +148,6 @@ export default class AugmentedCanvasPlugin extends Plugin {
 						);
 
 						new FolderSuggestModal(app, (folder: TFolder) => {
-							// new Notice(`Selected folder ${folder.path}`);
 							runPromptFolder(
 								app,
 								this.settings,
@@ -413,7 +158,6 @@ export default class AugmentedCanvasPlugin extends Plugin {
 					}
 				).open();
 			},
-			// callback: () => {},
 		});
 
 		this.addCommand({
@@ -421,9 +165,7 @@ export default class AugmentedCanvasPlugin extends Plugin {
 			name: "Insert system prompt",
 			checkCallback: (checking: boolean) => {
 				if (checking) {
-					// console.log({ checkCallback: checking });
 					if (!getActiveCanvas(app)) return false;
-
 					return true;
 				}
 
@@ -434,7 +176,6 @@ export default class AugmentedCanvasPlugin extends Plugin {
 						insertSystemPrompt(app, systemPrompt)
 				).open();
 			},
-			// callback: () => {},
 		});
 
 		this.addCommand({
@@ -442,15 +183,12 @@ export default class AugmentedCanvasPlugin extends Plugin {
 			name: "Insert relevant questions",
 			checkCallback: (checking: boolean) => {
 				if (checking) {
-					// console.log({ checkCallback: checking });
 					if (!getActiveCanvas(app)) return false;
 					return true;
 				}
 
-				// new SystemPromptsModal(this.app, this.settings).open();
 				handleAddRelevantQuestions(app, this.settings);
 			},
-			// callback: async () => {},
 		});
 	}
 

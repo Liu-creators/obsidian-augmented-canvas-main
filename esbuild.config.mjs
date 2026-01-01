@@ -10,35 +10,50 @@ if you want to view the source, please visit the github repository of this plugi
 
 const prod = process.argv[2] === "production";
 
-esbuild
-	.build({
-		banner: {
-			js: banner,
-		},
-		entryPoints: ["src/AugmentedCanvasPlugin.ts"],
-		bundle: true,
-		external: [
-			"obsidian",
-			"electron",
-			"@codemirror/autocomplete",
-			"@codemirror/collab",
-			"@codemirror/commands",
-			"@codemirror/language",
-			"@codemirror/lint",
-			"@codemirror/search",
-			"@codemirror/state",
-			"@codemirror/view",
-			"@lezer/common",
-			"@lezer/highlight",
-			"@lezer/lr",
-			...builtins,
-		],
-		format: "cjs",
-		watch: !prod,
-		target: "es2018",
-		logLevel: "info",
-		sourcemap: prod ? false : "inline",
-		treeShaking: true,
-		outfile: "main.js",
-	})
-	.catch(() => process.exit(1));
+const options = {
+	banner: {
+		js: banner,
+	},
+	entryPoints: ["src/AugmentedCanvasPlugin.ts"],
+	bundle: true,
+	external: [
+		"obsidian",
+		"electron",
+		"@codemirror/autocomplete",
+		"@codemirror/collab",
+		"@codemirror/commands",
+		"@codemirror/language",
+		"@codemirror/lint",
+		"@codemirror/search",
+		"@codemirror/state",
+		"@codemirror/view",
+		"@lezer/common",
+		"@lezer/highlight",
+		"@lezer/lr",
+		...builtins,
+	],
+	format: "cjs",
+	target: "es2018",
+	logLevel: "info",
+	sourcemap: prod ? false : "inline",
+	treeShaking: true,
+	outfile: "main.js",
+	minify: prod,
+	loader: {
+		".txt": "text",
+	},
+	define: {
+		"process.env.NODE_ENV": prod ? '"production"' : '"development"',
+	},
+};
+
+if (prod) {
+	// Production build
+	esbuild.build(options).catch(() => process.exit(1));
+} else {
+	// Development with watch mode
+	esbuild.context(options).then(ctx => {
+		ctx.watch();
+		console.log("Watching for changes...");
+	}).catch(() => process.exit(1));
+}

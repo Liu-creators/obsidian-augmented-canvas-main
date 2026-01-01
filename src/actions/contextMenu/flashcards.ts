@@ -1,14 +1,9 @@
-import { CanvasView } from "../../obsidian/canvas-patches";
-import { CanvasNode } from "../../obsidian/canvas-internal";
 import { App, Notice } from "obsidian";
+import { CanvasNode } from "../../obsidian/canvas-internal";
 import { getActiveCanvas } from "../../utils";
 import { readNodeContent } from "../../obsidian/fileUtil";
-import {
-	AugmentedCanvasSettings,
-	DEFAULT_SETTINGS,
-} from "../../settings/AugmentedCanvasSettings";
+import { AugmentedCanvasSettings } from "../../settings/AugmentedCanvasSettings";
 import { getResponse } from "../../utils/chatgpt";
-import { getTokenLimit } from "../canvasNodeMenuActions/noteGenerator";
 
 const FLASHCARDS_SYSTEM_PROMPT = `
 You must respond in this JSON format: {
@@ -32,24 +27,7 @@ export const createFlashcards = async (
 	new Notice("Flashcard file being created...");
 
 	const node = <CanvasNode>Array.from(canvas.selection)?.first()!;
-
 	const nodeText = (await readNodeContent(node))?.trim() || "";
-
-	// TODO : respect token limit
-	// const encoding = encodingForModel(
-	// 	(settings.apiModel || DEFAULT_SETTINGS.apiModel) as TiktokenModel
-	// );
-
-	// const inputLimit = getTokenLimit(settings);
-
-	// let nodeTokens = encoding.encode(nodeText);
-
-	// const keepTokens = nodeTokens.slice(0, inputLimit - tokenCount - 1);
-	// const truncateTextTo = encoding.decode(keepTokens).length;
-	// // console.log(
-	// // 	`Truncating node text from ${nodeText.length} to ${truncateTextTo} characters`
-	// // );
-	// nodeText = nodeText.slice(0, truncateTextTo);
 
 	const gptResponse = await getResponse(
 		settings.apiKey,
@@ -72,20 +50,16 @@ ${settings.flashcardsSystemPrompt}`,
 			isJSON: true,
 		}
 	);
-	// console.log({ gptResponse });
 
 	const content = `
 ${gptResponse.flashcards
 	.map(
 		(flashcard: { front: string; back: string }) =>
 			`${flashcard.front}::${flashcard.back}`
-		// 			`#Q
-		// ${flashcard.front}::${flashcard.back}`
 	)
 	.join("\n\n")}
 `.trim();
 
-	//  TODO : replace with settings value
 	const FLASHCARDS_PATH = "Home/Flashcards";
 	try {
 		await app.vault.createFolder(
@@ -98,9 +72,5 @@ ${gptResponse.flashcards
 	);
 
 	new Notice(`Flashcard file "${gptResponse.filename}" created successfully`);
-
-	// await app.workspace.openLinkText(
-	// 	`Flashcards/${gptResponse.filename}.md`,
-	// 	""
-	// );
 };
+

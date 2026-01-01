@@ -1,4 +1,4 @@
-import { CHAT_MODELS, IMAGE_MODELS } from "src/openai/models";
+import { CHAT_MODELS } from "src/openai/models";
 
 export interface SystemPrompt {
 	id: number;
@@ -71,21 +71,6 @@ export interface AugmentedCanvasSettings {
 	 * System prompt used to generate flashcards file
 	 */
 	relevantQuestionsSystemPrompt: string;
-
-	/**
-	 * Model used for image generation
-	 */
-	imageModel: string;
-
-	/**
-	 * The path where generated images are stored
-	 */
-	imagesPath?: string;
-
-	/**
-	 * The Youtube API Key
-	 */
-	youtubeApiKey: string;
 }
 // export const DEFAULT_SYSTEM_PROMPT = `
 // You are a critical-thinking assistant bot.
@@ -134,15 +119,8 @@ export const DEFAULT_SETTINGS: AugmentedCanvasSettings = {
 	flashcardsSystemPrompt: FLASHCARDS_SYSTEM_PROMPT,
 	insertRelevantQuestionsFilesCount: 10,
 	relevantQuestionsSystemPrompt: RELEVANT_QUESTION_SYSTEM_PROMPT,
-	imageModel: IMAGE_MODELS.DALL_E_3.name,
-	imagesPath: undefined,
-	youtubeApiKey: "",
 };
 
 export function getModels() {
 	return Object.entries(CHAT_MODELS).map(([, value]) => value.name);
-}
-
-export function getImageModels() {
-	return Object.entries(IMAGE_MODELS).map(([, value]) => value.name);
 }

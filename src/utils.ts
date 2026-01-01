@@ -115,31 +115,6 @@ export const getCanvasActiveNoteText = (app: App) => {
 	return readNodeContent(canvasNode);
 };
 
-// export const addImageToCanvas = (app: App, imageFileName: string) => {
-// 	const canvas = getActiveCanvas(app);
-// 	if (!canvas) return;
-
-// 	const parentNode = getActiveCanvasNodes(app)?.[0];
-// 	if (!parentNode) return;
-
-// 	const IMAGE_WIDTH = parentNode.width;
-// 	const IMAGE_HEIGHT = IMAGE_WIDTH * (1024 / 1792) + 20;
-
-// 	createNode(
-// 		canvas,
-// 		{
-// 			text: `![[${imageFileName}]]`,
-// 			size: {
-// 				width: IMAGE_WIDTH,
-// 				height: IMAGE_HEIGHT,
-// 			},
-// 		},
-// 		parentNode
-// 	);
-
-// 	canvas.requestSave();
-// };
-
 export const getImageSaveFolderPath = async (
 	app: App,
 	settings: AugmentedCanvasSettings
@@ -152,19 +127,4 @@ export const getImageSaveFolderPath = async (
 	console.log({ attachments });
 
 	return attachments;
-	// // @ts-expect-error
-	// return settings.imagesPath || app.vault.config.attachmentFolderPath;
 };
-
-export function getYouTubeVideoId(url: string): string | null {
-	// This pattern will match the following types of YouTube URLs:
-	// - http://www.youtube.com/watch?v=VIDEO_ID
-	// - http://www.youtube.com/watch?v=VIDEO_ID&...
-	// - http://www.youtube.com/embed/VIDEO_ID
-	// - http://youtu.be/VIDEO_ID
-	// The capture group (VIDEO_ID) is the YouTube video ID
-	const pattern =
-		/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
-	const match = url.match(pattern);
-	return match ? match[1] : null;
-}

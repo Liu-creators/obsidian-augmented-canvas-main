@@ -5,7 +5,7 @@ import { CustomQuestionModal } from "../../modals/CustomQuestionModal";
 import {
 	handleCallGPT_Question,
 	handleCallGPT_Questions,
-} from "../canvasNodeMenuActions/advancedCanvas";
+} from "../canvas/askQuestion";
 import { handleCanvasMenu_Loading, handleCanvasMenu_Loaded } from "./utils";
 
 export const handlePatchNoteMenu = async (

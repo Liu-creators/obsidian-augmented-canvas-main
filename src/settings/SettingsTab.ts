@@ -10,7 +10,6 @@ import {
 import AugmentedCanvasPlugin from "./../AugmentedCanvasPlugin";
 import {
 	SystemPrompt,
-	getImageModels,
 	getModels,
 } from "./AugmentedCanvasSettings";
 import { initLogDebug } from "src/logDebug";
@@ -39,20 +38,6 @@ export class SettingsTab extends PluginSettingTab {
 				cb.setValue(this.plugin.settings.apiModel);
 				cb.onChange(async (value) => {
 					this.plugin.settings.apiModel = value;
-					await this.plugin.saveSettings();
-				});
-			});
-
-		new Setting(containerEl)
-			.setName("图像模型")
-			.setDesc("注意：DeepSeek API 不支持图像生成。此设置仅用于保持兼容性。如果使用 DeepSeek 进行图像生成，将会报错。如需使用图像生成功能，请切换到支持该功能的提供商（如 OpenAI）。")
-			.addDropdown((cb) => {
-				getImageModels().forEach((model) => {
-					cb.addOption(model, model);
-				});
-				cb.setValue(this.plugin.settings.imageModel);
-				cb.onChange(async (value) => {
-					this.plugin.settings.imageModel = value;
 					await this.plugin.saveSettings();
 				});
 			});
@@ -121,27 +106,12 @@ export class SettingsTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName("YouTube API 密钥")
-			.setDesc("用于获取字幕的 YouTube API 密钥")
-			.addText((text) => {
-				text.inputEl.type = "password";
-				text.setPlaceholder("API 密钥")
-					.setValue(this.plugin.settings.youtubeApiKey)
-					.onChange(async (value) => {
-						this.plugin.settings.youtubeApiKey = value;
-						await this.plugin.saveSettings();
-					});
-			});
-
-		new Setting(containerEl)
 			.setName("默认系统提示词 (System Prompt)")
 			.setDesc(
 				`每次向 API 发送请求时附带的系统提示词。\n（注意：您可以通过在笔记流开头添加一个以 'SYSTEM PROMPT' 开头的笔记来覆盖此设置。该笔记的剩余内容将作为系统提示词。）`
 			)
 			.addTextArea((component) => {
 				component.inputEl.rows = 6;
-				// component.inputEl.style.width = "300px";
-				// component.inputEl.style.fontSize = "10px";
 				component.inputEl.addClass("augmented-canvas-settings-prompt");
 				component.setValue(this.plugin.settings.systemPrompt);
 				component.onChange(async (value) => {
@@ -157,8 +127,6 @@ export class SettingsTab extends PluginSettingTab {
 			.setDesc(`用于生成闪卡文件的系统提示词。`)
 			.addTextArea((component) => {
 				component.inputEl.rows = 6;
-				// component.inputEl.style.width = "300px";
-				// component.inputEl.style.fontSize = "10px";
 				component.inputEl.addClass("augmented-canvas-settings-prompt");
 				component.setValue(this.plugin.settings.flashcardsSystemPrompt);
 				component.onChange(async (value) => {
@@ -174,8 +142,6 @@ export class SettingsTab extends PluginSettingTab {
 			)
 			.addTextArea((component) => {
 				component.inputEl.rows = 6;
-				// component.inputEl.style.width = "300px";
-				// component.inputEl.style.fontSize = "10px";
 				component.inputEl.addClass("augmented-canvas-settings-prompt");
 				component.setValue(
 					this.plugin.settings.relevantQuestionsSystemPrompt
@@ -320,13 +286,10 @@ export class SettingsTab extends PluginSettingTab {
 
 		const nameInput = new TextComponent(setting.controlEl);
 		nameInput.setPlaceholder("名称");
-		// colorInput.inputEl.addClass("highlighter-settings-color");
 
 		let promptInput: TextAreaComponent;
 		setting.addTextArea((component) => {
 			component.inputEl.rows = 6;
-			// component.inputEl.style.width = "300px";
-			// component.inputEl.style.fontSize = "10px";
 			component.setPlaceholder("提示词");
 			component.inputEl.addClass("augmented-canvas-settings-prompt");
 			promptInput = component;
@@ -340,8 +303,6 @@ export class SettingsTab extends PluginSettingTab {
 					let name = nameInput.inputEl.value;
 					const prompt = promptInput.inputEl.value;
 
-					// console.log({ name, prompt });
-
 					if (!name || !prompt) {
 						name && !prompt
 							? new Notice("缺少提示词")
@@ -350,26 +311,6 @@ export class SettingsTab extends PluginSettingTab {
 							: new Notice("缺少内容"); // else
 						return;
 					}
-
-					// * Handles multiple with the same name
-					// if (
-					// 	this.plugin.settings.systemPrompts.filter(
-					// 		(systemPrompt: SystemPrompt) =>
-					// 			systemPrompt.act === name
-					// 	).length
-					// ) {
-					// 	name += " 2";
-					// }
-					// let count = 3;
-					// while (
-					// 	this.plugin.settings.systemPrompts.filter(
-					// 		(systemPrompt: SystemPrompt) =>
-					// 			systemPrompt.act === name
-					// 	).length
-					// ) {
-					// 	name = name.slice(0, -2) + " " + count;
-					// 	count++;
-					// }
 
 					if (
 						!this.plugin.settings.systemPrompts.filter(
