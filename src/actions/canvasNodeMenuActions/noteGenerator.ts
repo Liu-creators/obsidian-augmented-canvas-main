@@ -207,39 +207,28 @@ export function noteGenerator(
 		// }
 	};
 
-	const generateNote = async (question?: string) => {
-		console.log("generateNote called", { question, fromNode, toNode });
-		
+	const generateNote = async (question?: string, edgeLabel?: string) => {
 		if (!canCallAI()) {
-			console.log("canCallAI returned false");
 			return;
 		}
-
-		logDebug("Creating AI note");
-		console.log("Creating AI note");
 
 		const canvas = getActiveCanvas();
 		if (!canvas) {
-			logDebug("No active canvas");
-			console.log("No active canvas");
 			new Notice("No active canvas found. Please open a canvas view.");
 			return;
 		}
-		console.log("Canvas found:", canvas);
 
 		await canvas.requestFrame();
 
 		let node: CanvasNode;
 		if (!fromNode) {
 			const selection = canvas.selection;
-			console.log("Selection size:", selection?.size);
 			if (selection?.size !== 1) {
 				new Notice("Please select exactly one note to ask AI.");
 				return;
 			}
 			const values = Array.from(selection.values());
 			node = values[0];
-			console.log("Selected node:", node);
 		} else {
 			node = fromNode;
 		}
@@ -250,12 +239,10 @@ export function noteGenerator(
 			await sleep(200);
 
 			const nodeContent = await readNodeContent(node);
-			console.log("Node content:", nodeContent?.substring(0, 100));
 
 			const { messages, tokenCount } = await buildMessages(node, {
 				prompt: question,
 			});
-			console.log("Built messages:", messages.length, "tokens:", tokenCount);
 			
 			// If no messages, try to use node content directly or use a default prompt
 			if (!messages.length) {
@@ -283,7 +270,6 @@ export function noteGenerator(
 				created = createNode(
 					canvas,
 					{
-						// text: "```loading...```",
 						text: `\`\`\`Calling AI (${settings.apiModel})...\`\`\``,
 						size: { height: placeholderNoteHeight },
 					},
@@ -292,7 +278,7 @@ export function noteGenerator(
 						color: assistantColor,
 						chat_role: "assistant",
 					},
-					question
+					edgeLabel !== undefined ? edgeLabel : question
 				);
 			} else {
 				created = toNode;
@@ -306,8 +292,6 @@ export function noteGenerator(
 			);
 
 			try {
-				// logDebug("messages", messages);
-
 				let firstDelta = true;
 				await streamResponse(
 					settings.apiKey,
@@ -357,40 +341,6 @@ export function noteGenerator(
 						created.setText(newText);
 					}
 				);
-
-				// if (generated == null) {
-				// 	new Notice(`Empty or unreadable response from GPT`);
-				// 	canvas.removeNode(created);
-				// 	return;
-				// }
-
-				// * Update Node
-				// created.setText(generated.response);
-				// const nodeData = created.getData();
-				// created.setData({
-				// 	...nodeData,
-				// 	questions: generated.questions,
-				// });
-				// const height = calcHeight({
-				// 	text: generated.response,
-				// 	parentHeight: node.height,
-				// });
-				// created.moveAndResize({
-				// 	height,
-				// 	width: created.width,
-				// 	x: created.x,
-				// 	y: created.y,
-				// });
-
-				// const selectedNoteId =
-				// 	canvas.selection?.size === 1
-				// 		? Array.from(canvas.selection.values())?.[0]?.id
-				// 		: undefined;
-
-				// if (selectedNoteId === node?.id || selectedNoteId == null) {
-				// 	// If the user has not changed selection, select the created node
-				// 	canvas.selectOnly(created, false /* startEditing */);
-				// }
 			} catch (error: any) {
 				const errorMessage = error?.message || error?.toString() || "Unknown error";
 				console.error("DeepSeek AI Error:", error);

@@ -22,6 +22,7 @@ export class CustomQuestionModal extends Modal {
 			if (event.ctrlKey && event.key === "Enter") {
 				// Prevent default action to avoid any unwanted behavior
 				event.preventDefault();
+				console.log("Ctrl+Enter pressed, submitting question:", textareaEl.value);
 				// Call the onSubmit function and close the modal
 				this.onSubmit(textareaEl.value);
 				this.close();
@@ -30,10 +31,15 @@ export class CustomQuestionModal extends Modal {
 
 		// Create and append a submit button
 		let submitBtn = contentEl.createEl("button", { text: "Ask AI" });
-		submitBtn.onClickEvent(() => {
+		submitBtn.addEventListener("click", (e) => {
+			console.log("Ask AI button clicked, question:", textareaEl.value);
+			e.preventDefault();
+			e.stopPropagation();
 			this.onSubmit(textareaEl.value);
 			this.close();
 		});
+		
+		console.log("CustomQuestionModal opened, button attached");
 	}
 
 	onClose() {

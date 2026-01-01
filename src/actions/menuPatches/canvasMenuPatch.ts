@@ -54,9 +54,11 @@ const addNodeMenuItems = (
 	setIcon(buttonEl_AskQuestion, "lucide-help-circle");
 	menuEl.appendChild(buttonEl_AskQuestion);
 	buttonEl_AskQuestion.addEventListener("click", () => {
+		console.log("Ask question with AI button clicked");
 		let modal = new CustomQuestionModal(
 			app,
 			(question2: string) => {
+				console.log("Modal callback received question:", question2);
 				handleCallGPT_Question(
 					app,
 					settings,
@@ -65,6 +67,7 @@ const addNodeMenuItems = (
 				);
 			}
 		);
+		console.log("Opening modal...");
 		modal.open();
 	});
 

@@ -16,12 +16,12 @@ import {
 	SystemPrompt,
 } from "./settings/AugmentedCanvasSettings";
 import SettingsTab from "./settings/SettingsTab";
-import SystemPromptsModal from "./modals/SystemPromptsModal";
+import SystemPromptsModal from "./Modals/SystemPromptsModal";
 import { createFlashcards } from "./actions/contextMenu/flashcards";
 import { parseCsv } from "./utils/csvUtils";
 import { handleAddRelevantQuestions } from "./actions/commands/relevantQuestions";
 import { initLogDebug } from "./logDebug";
-import FolderSuggestModal from "./modals/FolderSuggestModal";
+import FolderSuggestModal from "./Modals/FolderSuggestModal";
 import { insertSystemPrompt } from "./actions/commands/insertSystemPrompt";
 import { runPromptFolder } from "./actions/commands/runPromptFolder";
 import { getActiveCanvas } from "./utils";

@@ -57,8 +57,9 @@ export interface CanvasEdge {
 export interface Canvas {
 	edges: CanvasEdge[];
 	selection: Set<CanvasNode>;
-	nodes: CanvasNode[];
+	nodes: Map<string, CanvasNode>; // Canvas nodes are stored in a Map, not an array
 	wrapperEl: HTMLElement | null;
+	menu?: any; // Canvas menu object
 	addNode(node: CanvasNode): void;
 	createTextNode(options: CreateNodeOptions): CanvasNode;
 	deselectAll(): void;

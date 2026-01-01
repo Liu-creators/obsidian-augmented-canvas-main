@@ -1,71 +1,59 @@
-# Changelog | 更新日志
+# Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to the Obsidian Augmented Canvas plugin will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [0.1.16] - 2025-01-02
+## [Unreleased]
 
-### Changed | 变更
+### Added
+- **Group (分组) Support**: Added comprehensive support for Group nodes with intelligent content aggregation
+  - Automatic detection of Group nodes
+  - Coordinate-based algorithm to determine which nodes are within a Group
+  - Smart sorting of nodes within Groups (top to bottom, left to right)
+  - Nested Groups support with recursive processing
+  - Context building that combines all node content within a Group
+- New utility module `src/utils/groupUtils.ts` with Group handling functions:
+  - `isGroup()`: Check if a node is a Group
+  - `isNodeInGroup()`: Check if a node is within a Group's coordinate boundaries
+  - `getNodesInGroup()`: Get all nodes within a Group
+  - `readGroupContent()`: Read all content from nodes within a Group
+  - `getGroupLabel()`: Get the label of a Group
+  - `buildGroupContext()`: Build AI-friendly context from Group content
+- Documentation: `docs/GROUP_HANDLING.md` explaining the Group handling algorithm
 
-- **[BREAKING]** Migrated from OpenAI to DeepSeek API
-  - 从 OpenAI 迁移到 DeepSeek API
-- Removed image generation feature (DeepSeek does not support it)
-  - 移除图像生成功能（DeepSeek 不支持）
-- Removed YouTube captions feature
-  - 移除 YouTube 字幕功能
-- Removed website content scraping feature
-  - 移除网站内容抓取功能
+### Changed
+- Updated `askQuestion.ts` to handle Group nodes specially
+  - Group content is read and included as context for AI
+  - Only the user's question is displayed on the edge label (not the full context)
+- Modified `noteGenerator.ts` to accept separate `edgeLabel` parameter
+  - Allows displaying a short label on the connection line while sending full context to AI
+- Updated Canvas type definitions in `canvas-internal.d.ts`
+  - Changed `nodes` from array to `Map<string, CanvasNode>` to match actual implementation
+  - Added `menu` property
+- Fixed import paths to use correct casing for `Modals` folder
+- Updated README with Group support information in both English and Chinese
 
-### Improved | 改进
+### Fixed
+- Fixed "Ask question with AI" feature that was not responding
+  - Changed `onClickEvent` to `addEventListener("click")` in modal submit buttons
+  - Added `this.inputEl = inputEl` in `InputModal.ts`
+  - Fixed parameter passing in `handleCallGPT_Question`
+- Fixed canvas.nodes type error by using `Map.values()` iterator
+- Fixed file name casing inconsistencies (Modals vs modals)
 
-- Restructured project directories for better organization
-  - 重构项目目录结构，更好的组织方式
-- Split actions into separate modules (canvas, commands, contextMenu)
-  - 将 actions 拆分为独立模块（canvas、commands、contextMenu）
-- Improved TypeScript type definitions
-  - 改进 TypeScript 类型定义
-- Added ESLint configuration for code quality
-  - 添加 ESLint 配置以提升代码质量
-- Optimized build configuration
-  - 优化构建配置
-- Cleaned up commented and unused code
-  - 清理注释和未使用的代码
-- Removed duplicate lock files (yarn, pnpm), standardized on npm
-  - 移除重复的锁文件（yarn、pnpm），统一使用 npm
+### Removed
+- Image generation feature (not supported by DeepSeek API)
+- YouTube captions feature
+- Website content scraping feature
+- Removed unused dependencies and lock files (pnpm-lock.yaml, yarn.lock)
 
-### Added | 新增
+## [0.1.16] - Previous Release
 
-- Bilingual README (English and Chinese)
-  - 双语 README（英文和中文）
-- Contributing guidelines
-  - 贡献指南
-- Enhanced documentation and code comments
-  - 增强的文档和代码注释
-- JSDoc comments for better code understanding
-  - JSDoc 注释以更好理解代码
-
-### Fixed | 修复
-
-- Improved error handling in AI interactions
-  - 改进 AI 交互中的错误处理
-- Fixed type safety issues
-  - 修复类型安全问题
-
-## [0.1.15] - Previous versions
-
-See git history for previous changes.
-查看 git 历史以了解之前的更改。
-
----
-
-## Legend | 图例
-
-- `Added` | `新增` - New features
-- `Changed` | `变更` - Changes in existing functionality
-- `Deprecated` | `弃用` - Soon-to-be removed features
-- `Removed` | `移除` - Removed features
-- `Fixed` | `修复` - Bug fixes
-- `Security` | `安全` - Security fixes
-
+Initial release with core features:
+- Ask AI for specific cards
+- Ask questions with AI
+- AI generated questions
+- Create flashcards
+- System prompt management
+- DeepSeek API integration

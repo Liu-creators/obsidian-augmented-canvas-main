@@ -24,10 +24,11 @@ export class InputModal extends Modal {
 		let inputEl = contentEl.createEl("input");
 		inputEl.className = "augmented-canvas-modal-input";
 		inputEl.placeholder = this.label;
+		this.inputEl = inputEl;
 
 		// Add keydown event listener to the textarea
 		inputEl.addEventListener("keydown", (event) => {
-			// Check if Ctrl + Enter is pressed
+			// Check if Enter is pressed
 			if (event.key === "Enter") {
 				// Prevent default action to avoid any unwanted behavior
 				event.preventDefault();
@@ -41,7 +42,7 @@ export class InputModal extends Modal {
 		let submitBtn = contentEl.createEl("button", {
 			text: this.buttonLabel,
 		});
-		submitBtn.onClickEvent(() => {
+		submitBtn.addEventListener("click", () => {
 			this.onSubmit(inputEl.value);
 			this.close();
 		});
