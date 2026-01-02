@@ -245,6 +245,63 @@ export class SettingsTab extends PluginSettingTab {
 					})
 			);
 
+		// Group Generation Settings
+		containerEl.createEl("h3", { text: "Group 生成设置" });
+
+		new Setting(containerEl)
+			.setName("启用 Group 生成功能")
+			.setDesc("启用或禁用 'Generate Group with AI' 功能")
+			.addToggle((component) => {
+				component
+					.setValue(this.plugin.settings.groupGenerationEnabled)
+					.onChange(async (value) => {
+						this.plugin.settings.groupGenerationEnabled = value;
+						await this.plugin.saveSettings();
+					});
+			});
+
+		new Setting(containerEl)
+			.setName("默认 Group 颜色")
+			.setDesc("生成的 Group 默认颜色代码（1=红色, 2=橙色, 3=黄色, 4=绿色, 5=青色, 6=紫色）")
+			.addText((text) =>
+				text
+					.setValue(this.plugin.settings.defaultGroupColor)
+					.onChange(async (value) => {
+						this.plugin.settings.defaultGroupColor = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Group 内节点间距")
+			.setDesc("Group 内节点之间的间距（像素），默认 40")
+			.addText((text) =>
+				text
+					.setValue(this.plugin.settings.groupNodeSpacing.toString())
+					.onChange(async (value) => {
+						const parsed = parseInt(value);
+						if (!isNaN(parsed) && parsed >= 0) {
+							this.plugin.settings.groupNodeSpacing = parsed;
+							await this.plugin.saveSettings();
+						}
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Group 内边距")
+			.setDesc("Group 边框到内部节点的内边距（像素），默认 60")
+			.addText((text) =>
+				text
+					.setValue(this.plugin.settings.groupPadding.toString())
+					.onChange(async (value) => {
+						const parsed = parseInt(value);
+						if (!isNaN(parsed) && parsed >= 0) {
+							this.plugin.settings.groupPadding = parsed;
+							await this.plugin.saveSettings();
+						}
+					})
+			);
+
 		// new Setting(containerEl)
 		// 	.setName("API URL")
 		// 	.setDesc(

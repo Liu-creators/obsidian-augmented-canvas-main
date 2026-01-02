@@ -71,6 +71,26 @@ export interface AugmentedCanvasSettings {
 	 * System prompt used to generate flashcards file
 	 */
 	relevantQuestionsSystemPrompt: string;
+
+	/**
+	 * Enable group generation feature
+	 */
+	groupGenerationEnabled: boolean;
+
+	/**
+	 * Default color for generated groups
+	 */
+	defaultGroupColor: string;
+
+	/**
+	 * Spacing between nodes inside a group (in pixels)
+	 */
+	groupNodeSpacing: number;
+
+	/**
+	 * Padding around nodes inside a group (in pixels)
+	 */
+	groupPadding: number;
 }
 // export const DEFAULT_SYSTEM_PROMPT = `
 // You are a critical-thinking assistant bot.
@@ -119,6 +139,10 @@ export const DEFAULT_SETTINGS: AugmentedCanvasSettings = {
 	flashcardsSystemPrompt: FLASHCARDS_SYSTEM_PROMPT,
 	insertRelevantQuestionsFilesCount: 10,
 	relevantQuestionsSystemPrompt: RELEVANT_QUESTION_SYSTEM_PROMPT,
+	groupGenerationEnabled: true,
+	defaultGroupColor: "4",
+	groupNodeSpacing: 40,
+	groupPadding: 60,
 };
 
 export function getModels() {

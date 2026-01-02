@@ -8,6 +8,7 @@ import { addRegenerateResponse } from "../canvas/regenerateResponse";
 import { handleCallGPT_Question } from "../canvas/askQuestion";
 import { CustomQuestionModal } from "../../Modals/CustomQuestionModal";
 import { handlePatchNoteMenu } from "../menuPatches/noteMenuPatch";
+import { addGenerateGroupButton } from "../canvas/generateGroup";
 
 /**
  * Check if already patched to avoid duplicate menu items
@@ -37,7 +38,7 @@ const addEdgeMenuItems = (
 };
 
 /**
- * Add node menu items (Ask AI, Ask Question, AI Questions)
+ * Add node menu items (Ask AI, Ask Question, Generate Group, AI Questions)
  */
 const addNodeMenuItems = (
 	app: App,
@@ -70,6 +71,9 @@ const addNodeMenuItems = (
 		console.log("Opening modal...");
 		modal.open();
 	});
+
+	// Add "Generate Group with AI" button
+	addGenerateGroupButton(app, settings, menuEl);
 
 	// Add "AI generated questions" button
 	const buttonEl_AIQuestions = createEl("button", "clickable-icon gpt-menu-item");
