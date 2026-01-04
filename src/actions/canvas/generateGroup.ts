@@ -52,6 +52,20 @@ Second node content with more Markdown formatting.
 ---[NODE]---
 
 Third node content...
+
+OPTIONAL: After all nodes, you can specify connections between nodes using this format:
+---[CONNECTIONS]---
+1 -> 2: "depends on"
+2 -> 3: "leads to"
+1 -> 3: "relates to"
+
+Connection guidelines:
+- Use node numbers (1, 2, 3...) based on the order nodes appear
+- Format: "from -> to: \"label\"" (label is optional)
+- Only create connections that have meaningful relationships
+- Not all nodes need to be connected
+- Labels should be brief and describe the relationship (e.g., "depends on", "leads to", "relates to", "prerequisite for")
+- Connections are one-way (unidirectional)
 `.trim();
 
 /**
@@ -186,7 +200,7 @@ export async function generateGroupWithAI(
 		placeholderNode.setText("```Parsing nodes and creating group...```");
 		await sleep(300);
 
-		const parsedNodes = parseNodesFromMarkdown(accumulatedResponse);
+		const { nodes: parsedNodes, connections } = parseNodesFromMarkdown(accumulatedResponse);
 
 		if (parsedNodes.length === 0) {
 			// No nodes parsed, show error
@@ -217,7 +231,7 @@ export async function generateGroupWithAI(
 		// Extract group label from question or use default
 		const groupLabel = extractGroupLabel(userQuestion, parsedNodes.length);
 
-		// Create group with nodes
+		// Create group with nodes and connections
 		const groupNode = await createGroupWithNodes(canvas, parsedNodes, {
 			groupLabel,
 			groupColor: settings.defaultGroupColor || "4",
@@ -225,13 +239,18 @@ export async function generateGroupWithAI(
 			groupPadding: settings.groupPadding || 60,
 			parentNode: node,
 			edgeLabel: userQuestion,
+			connections,
 		});
 
 		// Remove placeholder
 		canvas.removeNode(placeholderNode);
 
 		if (groupNode) {
-			new Notice(`✓ Successfully created group with ${parsedNodes.length} nodes!`);
+			const connectionCount = connections.length;
+			const connectionMsg = connectionCount > 0 
+				? ` with ${connectionCount} connection${connectionCount > 1 ? 's' : ''}` 
+				: '';
+			new Notice(`✓ Successfully created group with ${parsedNodes.length} nodes${connectionMsg}!`);
 		} else {
 			new Notice("Group creation completed but node reference not available.");
 		}

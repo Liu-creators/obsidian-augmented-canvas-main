@@ -30,9 +30,9 @@ Content for node 3`;
 	const result1 = parseNodesFromMarkdown(markdown1);
 	console.log('Input:', markdown1);
 	console.log('Output:', result1);
-	console.assert(result1.length === 3, '❌ Should parse 3 nodes');
-	console.assert(result1[0].title === 'Node 1', '❌ First node title should be "Node 1"');
-	console.assert(result1[0].content === 'Content for node 1', '❌ First node content mismatch');
+	console.assert(result1.nodes.length === 3, '❌ Should parse 3 nodes');
+	console.assert(result1.nodes[0].title === 'Node 1', '❌ First node title should be "Node 1"');
+	console.assert(result1.nodes[0].content === 'Content for node 1', '❌ First node content mismatch');
 	console.log('✅ Test 1 passed');
 	console.groupEnd();
 
@@ -51,8 +51,8 @@ Third node content`;
 	const result2 = parseNodesFromMarkdown(markdown2);
 	console.log('Input:', markdown2);
 	console.log('Output:', result2);
-	console.assert(result2.length === 3, '❌ Should parse 3 nodes');
-	console.assert(result2[0].content === 'First node content', '❌ First node content mismatch');
+	console.assert(result2.nodes.length === 3, '❌ Should parse 3 nodes');
+	console.assert(result2.nodes[0].content === 'First node content', '❌ First node content mismatch');
 	console.log('✅ Test 2 passed');
 	console.groupEnd();
 
@@ -62,7 +62,7 @@ Third node content`;
 	const result3 = parseNodesFromMarkdown(markdown3);
 	console.log('Input:', markdown3);
 	console.log('Output:', result3);
-	console.assert(result3.length === 1, '❌ Should parse 1 node');
+	console.assert(result3.nodes.length === 1, '❌ Should parse 1 node');
 	console.log('✅ Test 3 passed');
 	console.groupEnd();
 
@@ -72,7 +72,7 @@ Third node content`;
 	const result4 = parseNodesFromMarkdown(markdown4);
 	console.log('Input:', markdown4);
 	console.log('Output:', result4);
-	console.assert(result4.length === 0, '❌ Should parse 0 nodes');
+	console.assert(result4.nodes.length === 0, '❌ Should parse 0 nodes');
 	console.log('✅ Test 4 passed');
 	console.groupEnd();
 
@@ -94,9 +94,9 @@ Final thoughts here.`;
 	const result5 = parseNodesFromMarkdown(markdown5);
 	console.log('Input:', markdown5);
 	console.log('Output:', result5);
-	console.assert(result5.length === 3, '❌ Should parse 3 nodes');
-	console.assert(result5[0].title === 'Introduction', '❌ Title mismatch');
-	console.assert(result5[0].content.includes('multiple paragraphs'), '❌ Content should preserve formatting');
+	console.assert(result5.nodes.length === 3, '❌ Should parse 3 nodes');
+	console.assert(result5.nodes[0].title === 'Introduction', '❌ Title mismatch');
+	console.assert(result5.nodes[0].content.includes('multiple paragraphs'), '❌ Content should preserve formatting');
 	console.log('✅ Test 5 passed');
 	console.groupEnd();
 
@@ -112,7 +112,7 @@ Content only in the third node`;
 	const result6 = parseNodesFromMarkdown(markdown6);
 	console.log('Input:', markdown6);
 	console.log('Output:', result6);
-	console.assert(result6.length === 1, '❌ Should only parse nodes with content');
+	console.assert(result6.nodes.length === 1, '❌ Should only parse nodes with content');
 	console.log('✅ Test 6 passed');
 	console.groupEnd();
 

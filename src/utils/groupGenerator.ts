@@ -1,7 +1,7 @@
 import { App } from "obsidian";
 import { Canvas, CanvasNode } from "../obsidian/canvas-internal";
 import { randomHexString } from "../utils";
-import { addEdge } from "../obsidian/canvas-patches";
+import { addEdge, CanvasEdgeIntermediate } from "../obsidian/canvas-patches";
 
 /**
  * Parsed node data from markdown
@@ -9,6 +9,15 @@ import { addEdge } from "../obsidian/canvas-patches";
 export interface ParsedNode {
 	title?: string;
 	content: string;
+}
+
+/**
+ * Connection information between nodes
+ */
+export interface ConnectionInfo {
+	fromIndex: number;  // 0-based index
+	toIndex: number;    // 0-based index
+	label?: string;     // Optional edge label
 }
 
 /**
@@ -22,75 +31,205 @@ export interface NodeLayout {
 }
 
 /**
- * Parse AI response markdown into multiple nodes
- * Uses the new separator format: ---[NODE]---
- * This avoids conflicts with Markdown syntax like ### headers and --- horizontal rules
- * 
- * Also supports backward compatibility with old formats:
- * 1. ### Title format (fallback)
- * 2. --- separator format (fallback)
+ * Parse connection information from markdown
+ * Extracts connections after ---[CONNECTIONS]--- separator
+ * Supports both standalone connections section and connections embedded in node content
  */
-export function parseNodesFromMarkdown(markdown: string): ParsedNode[] {
+export function parseConnectionsFromMarkdown(
+	markdown: string,
+	nodeCount: number
+): ConnectionInfo[] {
+	const connections: ConnectionInfo[] = [];
+	
+	// First, try to find standalone connections section (with double newlines)
+	let connectionsText = "";
+	const connectionSeparator = /\n\n---\s*\[CONNECTIONS\]\s*---\s*\n\n/i;
+	const separatorMatch = markdown.match(connectionSeparator);
+	
+	if (separatorMatch && separatorMatch.index !== undefined) {
+		// Found standalone connections section
+		connectionsText = markdown.substring(separatorMatch.index + separatorMatch[0].length).trim();
+	} else {
+		// Try to find connections embedded in content (more flexible matching)
+		// Match: ---[CONNECTIONS]--- with optional whitespace/newlines
+		const embeddedPattern = /(?:^|\n)\s*---\s*\[CONNECTIONS\]\s*---\s*\n?([\s\S]*?)(?:\n\n---\s*\[NODE\]\s*---|$)/i;
+		const embeddedMatch = markdown.match(embeddedPattern);
+		
+		if (embeddedMatch && embeddedMatch[1]) {
+			connectionsText = embeddedMatch[1].trim();
+		} else {
+			// Last resort: find any ---[CONNECTIONS]--- in the text
+			const lastResortPattern = /---\s*\[CONNECTIONS\]\s*---\s*\n?([\s\S]*)$/i;
+			const lastResortMatch = markdown.match(lastResortPattern);
+			if (lastResortMatch && lastResortMatch[1]) {
+				connectionsText = lastResortMatch[1].trim();
+			}
+		}
+	}
+	
+	if (!connectionsText) {
+		console.log('[GroupGenerator] No connections text found');
+		return connections;
+	}
+	
+	console.log(`[GroupGenerator] Parsing connections from text:\n${connectionsText}`);
+	
+	// Parse connection lines
+	// Format: "1 -> 2: \"label\"" or "1 -> 2" or "1 -> 2: label"
+	const connectionLineRegex = /^(\d+)\s*->\s*(\d+)(?:\s*:\s*(?:"([^"]*)"|'([^']*)'|([^\n]+)))?/gm;
+	const lines = connectionsText.split('\n');
+	
+	for (const line of lines) {
+		const trimmedLine = line.trim();
+		if (!trimmedLine || trimmedLine.startsWith('#')) {
+			// Skip empty lines and comments
+			continue;
+		}
+		
+		const match = trimmedLine.match(/^(\d+)\s*->\s*(\d+)(?:\s*:\s*(.+))?/);
+		if (!match) {
+			// Invalid format, skip
+			continue;
+		}
+		
+		const fromIndex = parseInt(match[1], 10) - 1; // Convert to 0-based
+		const toIndex = parseInt(match[2], 10) - 1;   // Convert to 0-based
+		let label: string | undefined;
+		
+		// Extract label (remove quotes if present)
+		if (match[3]) {
+			label = match[3].trim();
+			// Remove surrounding quotes
+			if ((label.startsWith('"') && label.endsWith('"')) ||
+				(label.startsWith("'") && label.endsWith("'"))) {
+				label = label.slice(1, -1);
+			}
+		}
+		
+		// Validate indices
+		if (fromIndex < 0 || fromIndex >= nodeCount ||
+			toIndex < 0 || toIndex >= nodeCount) {
+			// Invalid index, skip
+			continue;
+		}
+		
+		// Skip self-connections
+		if (fromIndex === toIndex) {
+			continue;
+		}
+		
+		connections.push({
+			fromIndex,
+			toIndex,
+			label: label || undefined,
+		});
+		
+		console.log(`[GroupGenerator] Parsed connection: ${fromIndex + 1} -> ${toIndex + 1}${label ? ` (${label})` : ''}`);
+	}
+	
+	console.log(`[GroupGenerator] Total connections parsed: ${connections.length}`);
+	return connections;
+}
+
+/**
+ * Remove connections section from node content
+ * This ensures connections text doesn't appear in the rendered node
+ */
+function removeConnectionsFromContent(content: string): string {
+	// Remove ---[CONNECTIONS]--- and everything after it
+	const connectionPattern = /(?:^|\n)\s*---\s*\[CONNECTIONS\]\s*---\s*[\s\S]*$/i;
+	return content.replace(connectionPattern, '').trim();
+}
+
+/**
+ * Parse AI response markdown into multiple nodes and connections
+ * Supports the new separator format: ---[NODE]---
+ * Also supports backward compatibility with old formats
+ * Returns both nodes and connections
+ */
+export function parseNodesFromMarkdown(markdown: string): {
+	nodes: ParsedNode[];
+	connections: ConnectionInfo[];
+} {
 	const nodes: ParsedNode[] = [];
+	
+	// First, separate nodes and connections sections
+	// Try to find standalone connections section first
+	const connectionSeparator = /\n\n---\s*\[CONNECTIONS\]\s*---\s*\n\n/i;
+	const separatorMatch = markdown.match(connectionSeparator);
+	
+	let nodesMarkdown = markdown;
+	if (separatorMatch && separatorMatch.index !== undefined) {
+		// Extract only the nodes part (before connections)
+		nodesMarkdown = markdown.substring(0, separatorMatch.index).trim();
+	}
 	
 	// Primary: Use new ---[NODE]--- separator (avoids conflicts with Markdown)
 	// Match pattern: ---[NODE]--- with optional whitespace, surrounded by newlines
 	const newNodeSeparator = /\n\n---\s*\[NODE\]\s*---\n\n/g;
-	const newFormatParts = markdown.split(newNodeSeparator).filter(part => part.trim());
+	const newFormatParts = nodesMarkdown.split(newNodeSeparator).filter(part => part.trim());
 	
 	if (newFormatParts.length > 1) {
 		// Successfully parsed using new separator
 		for (const part of newFormatParts) {
-			const content = part.trim();
+			let content = part.trim();
+			// Remove connections section if it appears in node content
+			content = removeConnectionsFromContent(content);
 			if (content) {
 				// Content is preserved as-is, with all Markdown syntax intact
 				nodes.push({ content });
 			}
 		}
-		return nodes;
-	}
-	
-	// Fallback 1: Try old ### header format (for backward compatibility)
-	const headerRegex = /^###\s+(.+?)$/gm;
-	const matches = Array.from(markdown.matchAll(headerRegex));
-	
-	if (matches.length > 0) {
-		// Split by ### headers
-		const parts = markdown.split(/^###\s+/gm).filter(part => part.trim());
+	} else {
+		// Fallback 1: Try old ### header format (for backward compatibility)
+		const headerRegex = /^###\s+(.+?)$/gm;
+		const matches = Array.from(nodesMarkdown.matchAll(headerRegex));
 		
-		for (const part of parts) {
-			const lines = part.split('\n');
-			const title = lines[0].trim();
-			const content = lines.slice(1).join('\n').trim();
+		if (matches.length > 0) {
+			// Split by ### headers
+			const parts = nodesMarkdown.split(/^###\s+/gm).filter(part => part.trim());
 			
-			if (content) {
-				nodes.push({ title, content });
+			for (const part of parts) {
+				const lines = part.split('\n');
+				const title = lines[0].trim();
+				let content = lines.slice(1).join('\n').trim();
+				// Remove connections section if it appears in node content
+				content = removeConnectionsFromContent(content);
+				
+				if (content) {
+					nodes.push({ title, content });
+				}
+			}
+		} else {
+			// Fallback 2: Try old --- separator format (for backward compatibility)
+			const oldSeparatorParts = nodesMarkdown.split(/\n---\n/).filter(part => part.trim());
+			
+			if (oldSeparatorParts.length > 1) {
+				// Multiple parts separated by ---
+				for (const part of oldSeparatorParts) {
+					let trimmed = part.trim();
+					// Remove connections section if it appears in node content
+					trimmed = removeConnectionsFromContent(trimmed);
+					if (trimmed) {
+						nodes.push({ content: trimmed });
+					}
+				}
+			} else {
+				// No separators found, treat as single node
+				let trimmed = nodesMarkdown.trim();
+				// Remove connections section if it appears in node content
+				trimmed = removeConnectionsFromContent(trimmed);
+				if (trimmed) {
+					nodes.push({ content: trimmed });
+				}
 			}
 		}
-		return nodes;
 	}
 	
-	// Fallback 2: Try old --- separator format (for backward compatibility)
-	const oldSeparatorParts = markdown.split(/\n---\n/).filter(part => part.trim());
+	// Parse connections (use original markdown to find connections anywhere)
+	const connections = parseConnectionsFromMarkdown(markdown, nodes.length);
 	
-	if (oldSeparatorParts.length > 1) {
-		// Multiple parts separated by ---
-		for (const part of oldSeparatorParts) {
-			const trimmed = part.trim();
-			if (trimmed) {
-				nodes.push({ content: trimmed });
-			}
-		}
-		return nodes;
-	}
-	
-	// No separators found, treat as single node
-	const trimmed = markdown.trim();
-	if (trimmed) {
-		nodes.push({ content: trimmed });
-	}
-	
-	return nodes;
+	return { nodes, connections };
 }
 
 /**
@@ -214,26 +353,44 @@ function calculateGroupBounds(
 }
 
 /**
- * Extract group label from user question or use default
+ * Determine edge sides based on relative positions of two nodes
  */
-function extractGroupLabel(question?: string): string {
-	if (!question) return "AI Generated Group";
+function determineEdgeSides(
+	fromLayout: NodeLayout,
+	toLayout: NodeLayout
+): { fromSide: string; toSide: string } {
+	const fromCenterX = fromLayout.x + fromLayout.width / 2;
+	const fromCenterY = fromLayout.y + fromLayout.height / 2;
+	const toCenterX = toLayout.x + toLayout.width / 2;
+	const toCenterY = toLayout.y + toLayout.height / 2;
 	
-	// Try to extract a meaningful short label from the question
-	// Remove common question words and take first few words
-	const cleaned = question
-		.replace(/^(please|create|generate|make|give me|show me|can you|could you)\s+/i, '')
-		.replace(/\?+$/, '')
-		.trim();
+	const deltaX = toCenterX - fromCenterX;
+	const deltaY = toCenterY - fromCenterY;
 	
-	// Take first 50 characters max
-	const label = cleaned.length > 50 ? cleaned.substring(0, 47) + "..." : cleaned;
-	
-	return label || "AI Generated Group";
+	// Determine primary direction
+	if (Math.abs(deltaX) > Math.abs(deltaY)) {
+		// Horizontal connection
+		if (deltaX > 0) {
+			// Target is to the right
+			return { fromSide: "right", toSide: "left" };
+		} else {
+			// Target is to the left
+			return { fromSide: "left", toSide: "right" };
+		}
+	} else {
+		// Vertical connection
+		if (deltaY > 0) {
+			// Target is below
+			return { fromSide: "bottom", toSide: "top" };
+		} else {
+			// Target is above
+			return { fromSide: "top", toSide: "bottom" };
+		}
+	}
 }
 
 /**
- * Create a group with multiple nodes inside it
+ * Create a group with multiple nodes inside it and connect them
  * 
  * @param canvas - Canvas instance
  * @param parsedNodes - Array of parsed nodes with content
@@ -250,6 +407,7 @@ export async function createGroupWithNodes(
 		groupPadding?: number;
 		parentNode?: CanvasNode;
 		edgeLabel?: string;
+		connections?: ConnectionInfo[];
 	} = {}
 ): Promise<CanvasNode | null> {
 	if (!canvas || parsedNodes.length === 0) {
@@ -263,6 +421,7 @@ export async function createGroupWithNodes(
 		groupPadding = 60,
 		parentNode,
 		edgeLabel,
+		connections = [],
 	} = options;
 	
 	// If only one node, don't create a group, just create a single node
@@ -328,11 +487,70 @@ export async function createGroupWithNodes(
 	
 	await canvas.requestFrame();
 	
-	// Get the created group node
+	// Get the created group node and text nodes
 	const groupNode = canvas.nodes.get(groupId);
+	const createdTextNodes: CanvasNode[] = [];
+	
+	for (const textNodeData of textNodes) {
+		const node = canvas.nodes.get(textNodeData.id);
+		if (node) {
+			createdTextNodes.push(node);
+		}
+	}
 	
 	if (!groupNode) {
 		return null;
+	}
+	
+	// Create edges between nodes based on connections
+	if (connections.length > 0) {
+		console.log(`[GroupGenerator] Creating ${connections.length} connections between nodes`);
+	}
+	
+	for (const connection of connections) {
+		if (connection.fromIndex >= 0 && connection.fromIndex < createdTextNodes.length &&
+			connection.toIndex >= 0 && connection.toIndex < createdTextNodes.length) {
+			
+			const fromNode = createdTextNodes[connection.fromIndex];
+			const toNode = createdTextNodes[connection.toIndex];
+			
+			if (fromNode && toNode) {
+				// Determine edge sides based on node positions
+				const fromLayout = layouts[connection.fromIndex];
+				const toLayout = layouts[connection.toIndex];
+				const { fromSide, toSide } = determineEdgeSides(fromLayout, toLayout);
+				
+				console.log(`[GroupGenerator] Creating edge: ${connection.fromIndex + 1} -> ${connection.toIndex + 1}${connection.label ? ` (${connection.label})` : ''}`);
+				
+				// Create edge
+				const fromEdge: CanvasEdgeIntermediate = {
+					fromOrTo: "from",
+					side: fromSide,
+					node: fromNode,
+				};
+				
+				const toEdge: CanvasEdgeIntermediate = {
+					fromOrTo: "to",
+					side: toSide,
+					node: toNode,
+				};
+				
+				addEdge(
+					canvas,
+					randomHexString(16),
+					fromEdge,
+					toEdge,
+					connection.label,
+					{
+						isGenerated: true,
+					}
+				);
+			} else {
+				console.warn(`[GroupGenerator] Failed to find nodes for connection: ${connection.fromIndex + 1} -> ${connection.toIndex + 1}`);
+			}
+		} else {
+			console.warn(`[GroupGenerator] Invalid connection indices: ${connection.fromIndex + 1} -> ${connection.toIndex + 1} (valid range: 1-${createdTextNodes.length})`);
+		}
 	}
 	
 	// Create edge from parent node to group if parent exists
@@ -359,4 +577,3 @@ export async function createGroupWithNodes(
 	
 	return groupNode;
 }
-

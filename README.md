@@ -125,14 +125,9 @@ AI 会根据问题生成一个新卡片，并将问题显示在连接两个卡�
 
 ## ⚠️ 重要提示
 
-- 本插件使用 DeepSeek API 而非 OpenAI
+- 本插件使用 DeepSeek API
 - API 调用可能会根据您的 DeepSeek 使用计划产生费用
 
 ## 📄 许可证
 
 MIT 许可证 - 详情请见 [LICENSE](LICENSE) 文件。
-
-## 🙏 致谢
-
-- [rpggio/obsidian-chat-stream](https://github.com/rpggio/obsidian-chat-stream)
-- [Quorafind/Obsidian-Collapse-Node](https://github.com/quorafind/obsidian-collapse-node)
