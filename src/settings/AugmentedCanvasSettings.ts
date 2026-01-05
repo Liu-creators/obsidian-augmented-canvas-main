@@ -104,12 +104,6 @@ export interface AugmentedCanvasSettings {
 	groupPadding: number;
 
 	/**
-	 * Use XML format for AI responses (PRD v2.0)
-	 * If false, uses legacy Markdown format
-	 */
-	useXMLFormat: boolean;
-
-	/**
 	 * Node width for grid coordinate system (in pixels)
 	 */
 	gridNodeWidth: number;
@@ -180,7 +174,6 @@ export const DEFAULT_SETTINGS: AugmentedCanvasSettings = {
 	defaultGroupColor: "4",
 	groupNodeSpacing: 40,
 	groupPadding: 60,
-	useXMLFormat: true, // Use XML format (PRD v2.0) by default
 	gridNodeWidth: 360,
 	gridNodeHeight: 200,
 	gridGap: 40,

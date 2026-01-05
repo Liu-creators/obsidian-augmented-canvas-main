@@ -45,6 +45,12 @@ export class StreamingNodeCreator {
 	private userQuestion: string = ""; // User question
 	private createdEdges: Set<string> = new Set(); // Track created edges to avoid duplicates
 	
+	// New fields for dependency-aware node creation
+	private pendingNodes: Map<string, NodeXML> = new Map(); // Store pending nodes
+	private nodeDependencies: Map<string, string[]> = new Map(); // Store node dependencies (connected nodes via edges)
+	private createdNodeIds: Set<string> = new Set(); // Track created node IDs
+	private creatingNodes: Set<string> = new Set(); // Track nodes currently being created (to avoid circular dependencies)
+	
 	constructor(
 		canvas: Canvas,
 		sourceNode: CanvasNode,
@@ -72,8 +78,118 @@ export class StreamingNodeCreator {
 	
 	/**
 	 * Create a node from XML format
+	 * Now uses dependency-aware creation: creates related nodes first, then edges, then the node itself
 	 */
 	async createNodeFromXML(nodeXML: NodeXML): Promise<CanvasNode | null> {
+		// Store the node in pending nodes if not already created
+		if (!this.createdNodeIds.has(nodeXML.id)) {
+			this.pendingNodes.set(nodeXML.id, nodeXML);
+		}
+		
+		// Use dependency-aware creation
+		return await this.createNodeWithDependencies(nodeXML);
+	}
+	
+	/**
+	 * Find nodes that are connected to the given node via edges
+	 */
+	private findNodeDependencies(nodeId: string): string[] {
+		const dependencies: string[] = [];
+		
+		// Check all pending edges
+		for (const edge of this.pendingEdges) {
+			if (edge.from === nodeId) {
+				// This node points to another node
+				if (!dependencies.includes(edge.to)) {
+					dependencies.push(edge.to);
+				}
+			}
+			if (edge.to === nodeId) {
+				// Another node points to this node
+				if (!dependencies.includes(edge.from)) {
+					dependencies.push(edge.from);
+				}
+			}
+		}
+		
+		return dependencies;
+	}
+	
+	/**
+	 * Create a node with its dependencies first
+	 * Order: 1. Dependencies (related nodes), 2. Edges, 3. Current node
+	 */
+	private async createNodeWithDependencies(nodeXML: NodeXML): Promise<CanvasNode | null> {
+		// Avoid circular dependencies
+		if (this.creatingNodes.has(nodeXML.id)) {
+			console.warn(`[StreamingNodeCreator] Circular dependency detected for node ${nodeXML.id}, creating node directly`);
+			return await this.createNodeDirectly(nodeXML);
+		}
+		
+		// If already created, return it
+		if (this.createdNodeIds.has(nodeXML.id)) {
+			return this.createdNodeMap.get(nodeXML.id) || null;
+		}
+		
+		// Mark as being created
+		this.creatingNodes.add(nodeXML.id);
+		
+		try {
+			// Step 1: Find dependencies (nodes connected via edges)
+			const dependencies = this.findNodeDependencies(nodeXML.id);
+			
+			// Step 2: Create dependency nodes first (if they exist and haven't been created)
+			for (const depId of dependencies) {
+				if (!this.createdNodeIds.has(depId) && !this.creatingNodes.has(depId)) {
+					const depNode = this.pendingNodes.get(depId);
+					if (depNode) {
+						console.log(`[StreamingNodeCreator] Creating dependency node ${depId} before ${nodeXML.id}`);
+						await this.createNodeWithDependencies(depNode);
+					}
+				}
+			}
+			
+			// Step 3: Create the current node
+			const newNode = await this.createNodeDirectly(nodeXML);
+			
+			// Step 4: Create edges between this node and its dependencies (if both exist)
+			// This happens after the node is created, so edges can be created immediately
+			await this.createEdgesForNode(nodeXML.id);
+			
+			return newNode;
+		} finally {
+			// Remove from creating set
+			this.creatingNodes.delete(nodeXML.id);
+		}
+	}
+	
+	/**
+	 * Create edges for a specific node (if both endpoints exist)
+	 */
+	private async createEdgesForNode(nodeId: string): Promise<void> {
+		for (const edge of this.pendingEdges) {
+			// Check if this edge involves the node
+			if (edge.from === nodeId || edge.to === nodeId) {
+				const fromNode = this.createdNodeMap.get(edge.from);
+				const toNode = this.createdNodeMap.get(edge.to);
+				
+				// If both nodes exist and are real nodes (not placeholders), create edge
+				if (fromNode && toNode && fromNode.x !== undefined && toNode.x !== undefined) {
+					await this.createEdgeImmediately(edge, fromNode, toNode);
+				}
+			}
+		}
+	}
+	
+	/**
+	 * Directly create a node without dependency checking (internal method)
+	 */
+	private async createNodeDirectly(nodeXML: NodeXML): Promise<CanvasNode | null> {
+		// If already created, return it
+		if (this.createdNodeIds.has(nodeXML.id)) {
+			return this.createdNodeMap.get(nodeXML.id) || null;
+		}
+		
 		try {
 			// Use relationship-driven position calculation instead of fixed grid
 			const pixelPos = this.calculatePositionFromRelations(nodeXML.id);
@@ -103,6 +219,7 @@ export class StreamingNodeCreator {
 			// Store node
 			this.createdNodeMap.set(nodeXML.id, newNode);
 			this.nodePositions.set(nodeXML.id, { x: pixelPos.x, y: pixelPos.y });
+			this.createdNodeIds.add(nodeXML.id);
 			this.nodeCounter++;
 			
 			// If this is the first node, record it and redirect main edge
@@ -278,11 +395,32 @@ export class StreamingNodeCreator {
 		}
 		this.edgeRelations.get(edge.from)!.push(edge.to);
 		
+		// Update dependency graph for both nodes
+		// edge.from depends on edge.to (from -> to means from needs to)
+		if (!this.nodeDependencies.has(edge.from)) {
+			this.nodeDependencies.set(edge.from, []);
+		}
+		if (!this.nodeDependencies.get(edge.from)!.includes(edge.to)) {
+			this.nodeDependencies.get(edge.from)!.push(edge.to);
+		}
+		
+		// edge.to also depends on edge.from (bidirectional dependency for rendering)
+		if (!this.nodeDependencies.has(edge.to)) {
+			this.nodeDependencies.set(edge.to, []);
+		}
+		if (!this.nodeDependencies.get(edge.to)!.includes(edge.from)) {
+			this.nodeDependencies.get(edge.to)!.push(edge.from);
+		}
+		
 		// If both nodes already created, create edge immediately
 		const fromNode = this.createdNodeMap.get(edge.from);
 		const toNode = this.createdNodeMap.get(edge.to);
 		if (fromNode && toNode && fromNode.x !== undefined && toNode.x !== undefined) {
+			// Both nodes exist, create edge immediately for progressive rendering
 			this.createEdgeImmediately(edge, fromNode, toNode);
+			console.log(`[StreamingNodeCreator] Edge ${edge.from} -> ${edge.to} created immediately (both nodes exist)`);
+		} else {
+			console.log(`[StreamingNodeCreator] Edge ${edge.from} -> ${edge.to} stored for later (nodes not ready)`);
 		}
 	}
 	
@@ -406,6 +544,19 @@ export class StreamingNodeCreator {
 	}
 	
 	/**
+	 * Create all pending nodes that haven't been created yet
+	 * This ensures nodes without connections are also created
+	 */
+	async createAllPendingNodes(): Promise<void> {
+		for (const [nodeId, nodeXML] of this.pendingNodes.entries()) {
+			if (!this.createdNodeIds.has(nodeId)) {
+				console.log(`[StreamingNodeCreator] Creating pending node ${nodeId}`);
+				await this.createNodeWithDependencies(nodeXML);
+			}
+		}
+	}
+	
+	/**
 	 * Calculate node position based on edge relationships and spatial analysis
 	 */
 	private calculatePositionFromRelations(nodeId: string): { x: number; y: number } {
@@ -453,7 +604,7 @@ export class StreamingNodeCreator {
 		console.log(`[StreamingNodeCreator] Spatial analysis best: ${bestDirection.direction} (score: ${bestDirection.score.toFixed(2)})`);
 		
 		// Decide whether to use AI suggestion or spatial analysis
-		const respectAI = preferences.respectAICoordinates && this.settings.useXMLFormat;
+		const respectAI = preferences.respectAICoordinates ;
 		
 		if (respectAI && bestDirection.score < 50) {
 			// If spatial score is low but we respect AI, try AI's suggestion first
@@ -636,21 +787,37 @@ export class StreamingNodeCreator {
 		// Remove old edge
 		const newEdges = data.edges.filter((e: any) => e.id !== this.mainEdgeId);
 		
-		// Create new edge pointing to first node/group with correct sides
-		const newMainEdge = {
-			...mainEdge,
-			toNode: this.firstNodeOrGroup.id,
-			fromSide: fromSide,  // Update based on actual position
-			toSide: toSide,      // Update based on actual position
-		};
+		// Use addEdge to create new edge with label (instead of importData)
+		// This ensures the edge label is properly set
+		const edgeLabel = this.userQuestion || mainEdge.label || "";
 		
-		console.log(`[StreamingNodeCreator] Redirecting main edge: ${fromSide} -> ${toSide} (from node at ${sourceNode.x},${sourceNode.y} to node at ${this.firstNodeOrGroup.x},${this.firstNodeOrGroup.y})`);
+		console.log(`[StreamingNodeCreator] Redirecting main edge: ${fromSide} -> ${toSide} (from node at ${sourceNode.x},${sourceNode.y} to node at ${this.firstNodeOrGroup.x},${this.firstNodeOrGroup.y}) with label: "${edgeLabel}"`);
 		
-		// Update canvas
+		// Remove old edge from canvas
 		this.canvas.importData({
 			nodes: data.nodes,
-			edges: [...newEdges, newMainEdge],
+			edges: newEdges,
 		});
+		
+		// Create new edge with label using addEdge
+		addEdge(
+			this.canvas,
+			this.mainEdgeId,
+			{
+				fromOrTo: "from",
+				side: fromSide,
+				node: sourceNode,
+			},
+			{
+				fromOrTo: "to",
+				side: toSide,
+				node: this.firstNodeOrGroup,
+			},
+			edgeLabel, // User question as edge label
+			{
+				isGenerated: true,
+			}
+		);
 		
 		await this.canvas.requestFrame();
 		
