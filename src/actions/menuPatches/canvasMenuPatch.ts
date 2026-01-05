@@ -9,6 +9,8 @@ import { handleCallGPT_Question } from "../canvas/askQuestion";
 import { CustomQuestionModal } from "../../Modals/CustomQuestionModal";
 import { handlePatchNoteMenu } from "../menuPatches/noteMenuPatch";
 import { addGenerateGroupButton } from "../canvas/generateGroup";
+import { smartConnectNodes } from "../canvas/smartConnect";
+import { smartGroupExistingNodes } from "../canvas/smartGrouping";
 
 /**
  * Check if already patched to avoid duplicate menu items
@@ -39,6 +41,7 @@ const addEdgeMenuItems = (
 
 /**
  * Add node menu items (Ask AI, Ask Question, Generate Group, AI Questions)
+ * For single node selection
  */
 const addNodeMenuItems = (
 	app: App,
@@ -90,6 +93,49 @@ const addNodeMenuItems = (
 };
 
 /**
+ * Add multi-node menu items (Smart Connect, Smart Grouping)
+ * For multiple node selection (2+)
+ */
+const addMultiNodeMenuItems = (
+	app: App,
+	settings: AugmentedCanvasSettings,
+	menuEl: HTMLElement,
+	selectedNodes: CanvasNode[]
+) => {
+	// Add "Smart Connect" button
+	const buttonEl_SmartConnect = createEl("button", "clickable-icon gpt-menu-item");
+	setTooltip(buttonEl_SmartConnect, "Smart Connect - AI creates connections", { placement: "top" });
+	setIcon(buttonEl_SmartConnect, "lucide-git-branch");
+	menuEl.appendChild(buttonEl_SmartConnect);
+	buttonEl_SmartConnect.addEventListener("click", () => {
+		let modal = new CustomQuestionModal(
+			app,
+			async (instruction: string) => {
+				await smartConnectNodes(app, settings, selectedNodes, instruction);
+			}
+		);
+		modal.setPlaceholder("e.g., 'Connect by causal relationships' or '按时间顺序连线'");
+		modal.open();
+	});
+
+	// Add "Smart Grouping" button
+	const buttonEl_SmartGroup = createEl("button", "clickable-icon gpt-menu-item");
+	setTooltip(buttonEl_SmartGroup, "Smart Grouping - AI organizes into groups", { placement: "top" });
+	setIcon(buttonEl_SmartGroup, "lucide-group");
+	menuEl.appendChild(buttonEl_SmartGroup);
+	buttonEl_SmartGroup.addEventListener("click", () => {
+		let modal = new CustomQuestionModal(
+			app,
+			async (instruction: string) => {
+				await smartGroupExistingNodes(app, settings, selectedNodes, instruction);
+			}
+		);
+		modal.setPlaceholder("e.g., 'Group by technology stack' or '按优先级分类'");
+		modal.open();
+	});
+};
+
+/**
  * Patch the canvas menu render method
  */
 export const createCanvasMenuPatch = (
@@ -115,7 +161,9 @@ export const createCanvasMenuPatch = (
 					const result = next.call(this, ...args);
 
 					const maybeCanvasView = app.workspace.getActiveViewOfType(ItemView) as CanvasView | null;
-					if (!maybeCanvasView || maybeCanvasView.canvas?.selection?.size !== 1) {
+					const selectionSize = maybeCanvasView?.canvas?.selection?.size || 0;
+					
+					if (!maybeCanvasView || selectionSize === 0) {
 						return result;
 					}
 
@@ -123,12 +171,26 @@ export const createCanvasMenuPatch = (
 						return result;
 					}
 
-					const selectedNode = Array.from(maybeCanvasView.canvas?.selection)[0];
+					const selectedItems = Array.from(maybeCanvasView.canvas?.selection);
 
-					if (isEdge(selectedNode)) {
-						addEdgeMenuItems(app, settings, this.menuEl, selectedNode);
-					} else {
-						addNodeMenuItems(app, settings, this.menuEl, this.canvas);
+					// Handle single selection
+					if (selectionSize === 1) {
+						const selectedNode = selectedItems[0];
+
+						if (isEdge(selectedNode)) {
+							addEdgeMenuItems(app, settings, this.menuEl, selectedNode);
+						} else {
+							addNodeMenuItems(app, settings, this.menuEl, this.canvas);
+						}
+					}
+					// Handle multiple node selection
+					else if (selectionSize >= 2) {
+						// Filter out edges, only keep nodes
+						const selectedNodes = selectedItems.filter(item => !isEdge(item)) as CanvasNode[];
+						
+						if (selectedNodes.length >= 2) {
+							addMultiNodeMenuItems(app, settings, this.menuEl, selectedNodes);
+						}
 					}
 
 					return result;

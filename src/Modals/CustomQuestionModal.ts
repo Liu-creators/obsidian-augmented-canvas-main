@@ -2,10 +2,22 @@ import { Modal, App } from "obsidian";
 
 export class CustomQuestionModal extends Modal {
 	onSubmit: (input: string) => void;
+	private placeholder: string = "Write your question here";
+	private textareaEl?: HTMLTextAreaElement;
 
 	constructor(app: App, onSubmit: (input: string) => void) {
 		super(app);
 		this.onSubmit = onSubmit;
+	}
+
+	/**
+	 * Set custom placeholder text for the input
+	 */
+	setPlaceholder(placeholder: string): void {
+		this.placeholder = placeholder;
+		if (this.textareaEl) {
+			this.textareaEl.placeholder = placeholder;
+		}
 	}
 
 	onOpen() {
@@ -13,8 +25,9 @@ export class CustomQuestionModal extends Modal {
 		contentEl.className = "augmented-canvas-modal-container";
 
 		let textareaEl = contentEl.createEl("textarea");
+		this.textareaEl = textareaEl;
 		textareaEl.className = "augmented-canvas-modal-textarea";
-		textareaEl.placeholder = "Write your question here";
+		textareaEl.placeholder = this.placeholder;
 
 		// Add keydown event listener to the textarea
 		textareaEl.addEventListener("keydown", (event) => {

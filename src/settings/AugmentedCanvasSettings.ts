@@ -6,6 +6,17 @@ export interface SystemPrompt {
 	prompt: string;
 }
 
+/**
+ * Layout preferences for intelligent node positioning
+ */
+export interface LayoutPreferences {
+	mode: "horizontal" | "vertical" | "smart" | "radial";
+	directionPriority: ("right" | "down" | "left" | "up")[];
+	minNodeSpacing: number;
+	avoidOverlapStrength: number;
+	respectAICoordinates: boolean;
+}
+
 export interface AugmentedCanvasSettings {
 	/**
 	 * The API key to use when making requests
@@ -91,6 +102,32 @@ export interface AugmentedCanvasSettings {
 	 * Padding around nodes inside a group (in pixels)
 	 */
 	groupPadding: number;
+
+	/**
+	 * Use XML format for AI responses (PRD v2.0)
+	 * If false, uses legacy Markdown format
+	 */
+	useXMLFormat: boolean;
+
+	/**
+	 * Node width for grid coordinate system (in pixels)
+	 */
+	gridNodeWidth: number;
+
+	/**
+	 * Node height for grid coordinate system (in pixels)
+	 */
+	gridNodeHeight: number;
+
+	/**
+	 * Gap between nodes in grid coordinate system (in pixels)
+	 */
+	gridGap: number;
+
+	/**
+	 * Layout preferences for intelligent node positioning
+	 */
+	layoutPreferences: LayoutPreferences;
 }
 // export const DEFAULT_SYSTEM_PROMPT = `
 // You are a critical-thinking assistant bot.
@@ -143,6 +180,17 @@ export const DEFAULT_SETTINGS: AugmentedCanvasSettings = {
 	defaultGroupColor: "4",
 	groupNodeSpacing: 40,
 	groupPadding: 60,
+	useXMLFormat: true, // Use XML format (PRD v2.0) by default
+	gridNodeWidth: 360,
+	gridNodeHeight: 200,
+	gridGap: 40,
+	layoutPreferences: {
+		mode: "smart",
+		directionPriority: ["right", "down", "left", "up"],
+		minNodeSpacing: 120, // Increased default spacing to prevent edge overlap
+		avoidOverlapStrength: 80,
+		respectAICoordinates: true,
+	},
 };
 
 export function getModels() {

@@ -302,6 +302,87 @@ export class SettingsTab extends PluginSettingTab {
 					})
 			);
 
+		// ===== Layout Preferences Section =====
+		containerEl.createEl("h3", { text: "智能布局设置" });
+		
+		new Setting(containerEl)
+			.setName("布局模式")
+			.setDesc("选择新节点的布局模式：智能（自动选择最佳方向）、横向、纵向或辐射状")
+			.addDropdown((dropdown) => {
+				dropdown
+					.addOption("smart", "智能自适应")
+					.addOption("horizontal", "横向布局")
+					.addOption("vertical", "纵向布局")
+					.addOption("radial", "辐射状布局")
+					.setValue(this.plugin.settings.layoutPreferences.mode)
+					.onChange(async (value: "smart" | "horizontal" | "vertical" | "radial") => {
+						this.plugin.settings.layoutPreferences.mode = value;
+						await this.plugin.saveSettings();
+					});
+			});
+
+		new Setting(containerEl)
+			.setName("最小节点间距")
+			.setDesc("节点之间的最小间距（像素），默认 60")
+			.addText((text) =>
+				text
+					.setValue(this.plugin.settings.layoutPreferences.minNodeSpacing.toString())
+					.onChange(async (value) => {
+						const parsed = parseInt(value);
+						if (!isNaN(parsed) && parsed >= 20) {
+							this.plugin.settings.layoutPreferences.minNodeSpacing = parsed;
+							await this.plugin.saveSettings();
+						}
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("避免重叠强度")
+			.setDesc("控制空间分析避免节点重叠的强度（0-100），数值越高越努力避免重叠")
+			.addSlider((slider) =>
+				slider
+					.setLimits(0, 100, 10)
+					.setValue(this.plugin.settings.layoutPreferences.avoidOverlapStrength)
+					.setDynamicTooltip()
+					.onChange(async (value) => {
+						this.plugin.settings.layoutPreferences.avoidOverlapStrength = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("尊重AI坐标建议")
+			.setDesc("当启用时，系统会尽量使用AI提供的坐标建议，仅在冲突时调整")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.layoutPreferences.respectAICoordinates)
+					.onChange(async (value) => {
+						this.plugin.settings.layoutPreferences.respectAICoordinates = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("方向优先级")
+			.setDesc(
+				"设置智能布局的方向优先顺序。当前顺序：" + 
+				this.plugin.settings.layoutPreferences.directionPriority.join(" → ")
+			)
+			.addButton((button) => {
+				button
+					.setButtonText("配置优先级")
+					.onClick(() => {
+						// For now, use a simple rotation through the array
+						const priorities = this.plugin.settings.layoutPreferences.directionPriority;
+						// Rotate: move first to last
+						const first = priorities.shift();
+						if (first) priorities.push(first);
+						this.plugin.saveSettings();
+						this.display(); // Refresh to show new order
+						new Notice("方向优先级已更新");
+					});
+			});
+
 		// new Setting(containerEl)
 		// 	.setName("API URL")
 		// 	.setDesc(

@@ -278,7 +278,8 @@ export function noteGenerator(
 						color: assistantColor,
 						chat_role: "assistant",
 					},
-					edgeLabel !== undefined ? edgeLabel : question
+					edgeLabel !== undefined ? edgeLabel : question,
+					settings // Pass settings to enable smart positioning
 				);
 			} else {
 				created = toNode;
@@ -293,6 +294,7 @@ export function noteGenerator(
 
 			try {
 				let firstDelta = true;
+				
 				await streamResponse(
 					settings.apiKey,
 					messages,
@@ -309,6 +311,25 @@ export function noteGenerator(
 
 						// * Last call (stream completed)
 						if (!chunk) {
+							// Stream completed - resize to fit final content
+							const finalText = created.text;
+							if (finalText) {
+								const finalHeight = calcHeight({ text: finalText });
+								// Use calculated height with a reasonable minimum (80px)
+								// Cap at a reasonable maximum to avoid excessive height
+								const optimalHeight = Math.max(80, Math.min(finalHeight, NOTE_MIN_HEIGHT * 3));
+								
+								if (Math.abs(optimalHeight - created.height) > 20) {
+									// Only resize if difference is significant (>20px)
+									created.moveAndResize({
+										height: optimalHeight,
+										width: created.width,
+										x: created.x,
+										y: created.y,
+									});
+									console.log(`[noteGenerator] Final resize: ${created.height}px -> ${optimalHeight}px for text length ${finalText.length}`);
+								}
+							}
 							return;
 						}
 
@@ -316,9 +337,15 @@ export function noteGenerator(
 						if (firstDelta) {
 							newText = chunk;
 							firstDelta = false;
-
+							
+							// Calculate height based on actual content instead of fixed minimum
+							const calculatedHeight = calcHeight({ text: newText });
+							// Use calculated height with a reasonable minimum (80px)
+							// But don't exceed initial max (NOTE_MIN_HEIGHT) for first display
+							const initialHeight = Math.max(80, Math.min(calculatedHeight, NOTE_MIN_HEIGHT));
+							
 							created.moveAndResize({
-								height: NOTE_MIN_HEIGHT,
+								height: initialHeight,
 								width: created.width,
 								x: created.x,
 								y: created.y,
@@ -338,6 +365,7 @@ export function noteGenerator(
 							}
 							newText = created.text + chunk;
 						}
+						
 						created.setText(newText);
 					}
 				);

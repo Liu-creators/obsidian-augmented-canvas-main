@@ -577,3 +577,162 @@ export async function createGroupWithNodes(
 	
 	return groupNode;
 }
+
+/**
+ * Incremental Markdown Parser for streaming display
+ * Detects complete nodes as they arrive in chunks
+ */
+export class IncrementalMarkdownParser {
+	private buffer: string = "";
+	private lastParsedIndex: number = 0;
+	private detectedNodeCount: number = 0;
+	
+	/**
+	 * Append new chunk to buffer
+	 */
+	public append(chunk: string): void {
+		this.buffer += chunk;
+	}
+	
+	/**
+	 * Get the unprocessed content (for preview display)
+	 */
+	public getUnprocessedContent(): string {
+		return this.buffer.substring(this.lastParsedIndex);
+	}
+	
+	/**
+	 * Get full buffer content
+	 */
+	public getFullContent(): string {
+		return this.buffer;
+	}
+	
+	/**
+	 * Detect and extract complete nodes
+	 * Returns parsed nodes that haven't been returned before
+	 */
+	public detectCompleteNodes(): ParsedNode[] {
+		const nodes: ParsedNode[] = [];
+		
+		// Find all ---[NODE]--- separators
+		const separatorRegex = /---\s*\[NODE\]\s*---/g;
+		const separatorPositions: number[] = [];
+		
+		let match: RegExpExecArray | null;
+		while ((match = separatorRegex.exec(this.buffer)) !== null) {
+			separatorPositions.push(match.index);
+		}
+		
+		// If no separators found yet, return empty
+		if (separatorPositions.length === 0) {
+			return nodes;
+		}
+		
+		// Parse nodes between separators
+		let currentPos = this.lastParsedIndex;
+		
+		for (let i = 0; i < separatorPositions.length; i++) {
+			const sepPos = separatorPositions[i];
+			
+			// Only process separators after lastParsedIndex
+			if (sepPos <= this.lastParsedIndex) {
+				continue;
+			}
+			
+			// Extract content before this separator
+			const content = this.buffer.substring(currentPos, sepPos).trim();
+			
+			if (content) {
+				// Parse the node
+				const node = this.parseNode(content);
+				nodes.push(node);
+				this.detectedNodeCount++;
+			}
+			
+			// Move past the separator
+			const separatorLength = this.buffer.substring(sepPos).match(/^---\s*\[NODE\]\s*---/)?.[0].length || 0;
+			currentPos = sepPos + separatorLength;
+			this.lastParsedIndex = currentPos;
+		}
+		
+		return nodes;
+	}
+	
+	/**
+	 * Detect connections section
+	 * Returns connection info if found
+	 */
+	public detectConnections(): ConnectionInfo[] {
+		// Look for ---[CONNECTIONS]--- section
+		const connectionPattern = /---\s*\[CONNECTIONS\]\s*---\s*\n([\s\S]*?)(?:\n\n---\s*\[NODE\]\s*---|$)/i;
+		const match = this.buffer.match(connectionPattern);
+		
+		if (!match || !match[1]) {
+			return [];
+		}
+		
+		const connectionsText = match[1].trim();
+		const connections: ConnectionInfo[] = [];
+		
+		// Parse connection lines
+		const lines = connectionsText.split('\n');
+		for (const line of lines) {
+			const trimmedLine = line.trim();
+			if (!trimmedLine || trimmedLine.startsWith('#')) {
+				continue;
+			}
+			
+			const connectionMatch = trimmedLine.match(/^(\d+)\s*->\s*(\d+)(?:\s*:\s*(.+))?/);
+			if (!connectionMatch) {
+				continue;
+			}
+			
+			const fromIndex = parseInt(connectionMatch[1], 10) - 1;
+			const toIndex = parseInt(connectionMatch[2], 10) - 1;
+			let label: string | undefined;
+			
+			if (connectionMatch[3]) {
+				label = connectionMatch[3].trim().replace(/^["']|["']$/g, '');
+			}
+			
+			connections.push({ fromIndex, toIndex, label });
+		}
+		
+		return connections;
+	}
+	
+	/**
+	 * Parse a single node's content
+	 */
+	private parseNode(content: string): ParsedNode {
+		// Try to extract title from first line if it's a header
+		const lines = content.split('\n');
+		let title: string | undefined;
+		let nodeContent = content;
+		
+		if (lines.length > 0) {
+			const firstLine = lines[0].trim();
+			
+			// Check if first line is a markdown header
+			const headerMatch = firstLine.match(/^#+\s+(.+)$/);
+			if (headerMatch) {
+				title = headerMatch[1];
+				// Remove header from content
+				nodeContent = lines.slice(1).join('\n').trim();
+			}
+		}
+		
+		return {
+			title,
+			content: nodeContent || content, // Fallback to original content if empty
+		};
+	}
+	
+	/**
+	 * Get the number of nodes detected so far
+	 */
+	public getDetectedNodeCount(): number {
+		return this.detectedNodeCount;
+	}
+}
