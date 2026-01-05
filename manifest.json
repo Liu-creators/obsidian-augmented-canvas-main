@@ -4,10 +4,10 @@
 	"version": "0.1.20",
 	"minAppVersion": "1.1.0",
 	"description": "Obsidian Canvas with AI features.",
-	"author": "MetaCorp",
-	"authorUrl": "https://github.com/MetaCorp",
+	"author": "LiuZhuangZhuang",
+	"authorUrl": "",
 	"fundingUrl": {
-		"Buy Me a Coffee": "https://www.buymeacoffee.com/metacorp"
+		"Buy Me a Coffee": ""
 	},
 	"isDesktopOnly": false
 }

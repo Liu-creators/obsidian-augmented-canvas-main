@@ -1,18 +1,16 @@
 import { App, ItemView, Notice, setIcon, setTooltip } from "obsidian";
 import { AugmentedCanvasSettings } from "../../settings/AugmentedCanvasSettings";
 import { CanvasNode } from "../../obsidian/canvas-internal";
-import { CanvasView, createNode } from "../../obsidian/canvas-patches";
+import { CanvasView, createNode, addEdge } from "../../obsidian/canvas-patches";
 import { noteGenerator } from "../canvasNodeMenuActions/noteGenerator";
 import { streamResponse } from "../../utils/chatgpt";
-import { parseNodesFromMarkdown, createGroupWithNodes, IncrementalMarkdownParser } from "../../utils/groupGenerator";
-import { isGroup, readGroupContent, buildGroupContext } from "../../utils/groupUtils";
-import { parseXML, isXMLFormat } from "../../utils/xmlParser";
-import { getColorForType } from "../../utils/typeMapping";
-import { gridToPixel, DEFAULT_GRID_OPTIONS } from "../../utils/coordinateSystem";
+import { IncrementalMarkdownParser } from "../../utils/groupGenerator";
+import { isGroup, buildGroupContext } from "../../utils/groupUtils";
 import { randomHexString } from "../../utils";
-import { addEdge } from "../../obsidian/canvas-patches";
 import { IncrementalXMLParser } from "../../utils/incrementalXMLParser";
 import { StreamingNodeCreator } from "../../utils/streamingNodeCreator";
+import { analyzeBestDirection, calculatePositionInDirection, getLayoutPreferences } from "../../utils/spatialAnalyzer";
+import { logDebug } from "../../logDebug";
 
 /**
  * System prompt for Smart Expand - XML Format (PRD v2.0)
@@ -35,6 +33,20 @@ OUTPUT FORMAT (XML):
    - Use negative row/col to place content above/left if needed.
 5. Node coordinates inside the group are relative to the group's position (use small values like 0, 1, 2).
 
+EDGE USAGE GUIDELINES (连线使用指南):
+- **Edges are OPTIONAL** - Not all nodes need to be connected with edges.
+- **Use edges ONLY when there is a clear logical relationship**:
+  * Causal relationships (cause → effect)
+  * Sequential flow (step 1 → step 2 → step 3)
+  * Reference/dependency (A references B)
+  * Hierarchical relationships (parent → child)
+- **DO NOT use edges for**:
+  * Simple categorization/classification (use coordinate positioning instead)
+  * Lists or collections (use coordinate positioning instead)
+  * Parallel concepts without direct relationships
+  * Grouping by attributes (e.g., "四象限划分" - use spatial layout, not edges)
+- **For classification/categorization tasks**: Use coordinate positioning to organize nodes spatially (e.g., place categories in different quadrants using row/col coordinates), without creating edges between them.
+
 TYPE RULES (affects node color):
 - default: General text (Gray, use when unsure)
 - concept: Key ideas/concepts (Orange)
@@ -46,12 +58,18 @@ TYPE RULES (affects node color):
 
 COORDINATE GUIDELINES (Enhanced for Better Layout):
 - **Semantic Positioning**: Choose direction based on relationship type:
-  * Cause → Effect: Place effect to the RIGHT (row=0, col=1)
-  * Sequential steps: Place below in vertical flow (row+1, col=0)
-  * Parallel concepts: Place to the right (row=0, col+1) for horizontal layout
-  * Details/elaboration: Place to RIGHT or BOTTOM-RIGHT (row=1, col=1)
-  * Summary/conclusion: Consider placing ABOVE or to the LEFT (negative row/col)
-  * Branching alternatives: Distribute around source (right, down, down-right)
+  * Cause → Effect: Place effect to the RIGHT (row=0, col=1) - **use edge**
+  * Sequential steps: Place below in vertical flow (row+1, col=0) - **use edge**
+  * Parallel concepts: Place to the right (row=0, col+1) for horizontal layout - **no edge needed**
+  * Details/elaboration: Place to RIGHT or BOTTOM-RIGHT (row=1, col=1) - **edge optional**
+  * Summary/conclusion: Consider placing ABOVE or to the LEFT (negative row/col) - **edge optional**
+  * Branching alternatives: Distribute around source (right, down, down-right) - **use edges**
+  * **Classification/Categorization**: Use spatial regions (e.g., quadrants):
+    - Top-left (negative row, negative col): Category 1
+    - Top-right (negative row, positive col): Category 2
+    - Bottom-left (positive row, negative col): Category 3
+    - Bottom-right (positive row, positive col): Category 4
+    - **NO edges needed** - spatial position conveys the relationship
 
 - **Visual Balance**:
   * Avoid clustering all nodes in one direction
@@ -73,9 +91,8 @@ CONTENT GUIDELINES:
 - Node titles are optional but recommended for clarity
 - Use the same language as the user's instruction
 
-CRITICAL OUTPUT ORDER (MUST FOLLOW):
-- **DO NOT output all nodes first, then all edges**
-- **Output in this progressive pattern: node -> edge -> node -> edge**
+OUTPUT ORDER (When edges are used):
+- **If you create edges**, follow this progressive pattern: node -> edge -> node -> edge
 - When a node connects to another node, output them together:
   1. First node: <node id="n1">...</node>
   2. Edge connecting to next node: <edge from="n1" to="n2" ... />
@@ -83,21 +100,31 @@ CRITICAL OUTPUT ORDER (MUST FOLLOW):
   4. Edge from second node (if it connects to another): <edge from="n2" to="n3" ... />
   5. Continue: node -> edge -> node -> edge...
 - This progressive output allows the canvas to render nodes with their connections immediately
-- If a node has no connections, output it alone (no edge needed)
+- **If nodes have NO logical connections** (e.g., classification tasks), simply output nodes in order:
+  <node id="n1">...</node>
+  <node id="n2">...</node>
+  <node id="n3">...</node>
+  <!-- No edges needed - spatial positioning conveys the relationship -->
 - **Example of WRONG order (DO NOT DO THIS):**
   <node id="n1">...</node>
   <node id="n2">...</node>
   <node id="n3">...</node>
-  <edge from="n1" to="n2" />
-  <edge from="n2" to="n3" />
-- **Example of CORRECT order (DO THIS):**
+  <edge from="n1" to="n2" />  <!-- Only if there's a logical relationship -->
+  <edge from="n2" to="n3" />  <!-- Only if there's a logical relationship -->
+- **Example of CORRECT order for connected nodes (DO THIS):**
   <node id="n1">...</node>
   <edge from="n1" to="n2" />
   <node id="n2">...</node>
   <edge from="n2" to="n3" />
   <node id="n3">...</node>
+- **Example of CORRECT order for classification (NO edges needed):**
+  <node id="category1" row="-1" col="-1">重要且紧急</node>
+  <node id="category2" row="-1" col="1">重要不紧急</node>
+  <node id="category3" row="1" col="-1">紧急不重要</node>
+  <node id="category4" row="1" col="1">不紧急不重要</node>
+  <!-- No edges - spatial positioning (quadrants) shows the classification -->
 
-Example Output (Progressive Node-Edge Pattern):
+Example Output (With Edges - for sequential/causal relationships):
 <node id="n1" type="concept" title="Core Idea" row="0" col="1">
 The fundamental concept is **modularity**.
 - Separation of concerns
@@ -117,6 +144,31 @@ The fundamental concept is **modularity**.
 <node id="n3" type="warning" title="Pitfalls" row="1" col="0">
 ⚠️ Avoid tight coupling between modules.
 </node>
+
+Example Output (Without Edges - for classification/categorization):
+<node id="quad1" type="concept" title="重要且紧急" row="-1" col="-1">
+- 回复客户咨询邮件
+- 交电费
+- 预约牙医
+</node>
+
+<node id="quad2" type="concept" title="重要不紧急" row="-1" col="1">
+- 写周报
+- 阅读30页书
+- 制定下周健身计划
+</node>
+
+<node id="quad3" type="concept" title="紧急不重要" row="1" col="-1">
+- 取快递
+- 给猫铲屎
+- 买洗洁精
+</node>
+
+<node id="quad4" type="concept" title="不紧急不重要" row="1" col="1">
+- 去超市买菜
+- 整理电脑桌面文件
+</node>
+<!-- No edges needed - spatial positioning (four quadrants) shows the classification -->
 
 Example Output (REQUIRED FORMAT - All nodes in a group):
 <group id="g1" title="Generated Content" row="0" col="1">
@@ -214,25 +266,99 @@ export async function generateGroupWithAI(
 			prompt: finalPrompt,
 		});
 
-		// Create placeholder node
-		const placeholderNode = createNode(
-			canvas,
-			{
-				text: `\`\`\`Generating group with AI (${settings.apiModel})...\`\`\``,
-				size: { height: 60 },
-			},
+		// Calculate group position using spatial analysis
+		const preferences = getLayoutPreferences(settings);
+		const directionScores = analyzeBestDirection(canvas, node, preferences);
+		const bestDirection = directionScores[0];
+		
+		const groupWidth = 400; // Initial width
+		const groupHeight = 300; // Initial height
+		const spacing = userQuestion ? preferences.minNodeSpacing + 50 : preferences.minNodeSpacing;
+		
+		const groupPos = calculatePositionInDirection(
 			node,
-			{
-				color: "4", // Green for group generation
-				chat_role: "assistant",
-			},
-			userQuestion
+			bestDirection.direction,
+			{ width: groupWidth, height: groupHeight },
+			spacing
 		);
 
-		// Get the main edge ID (the edge just created from source node to placeholder)
+		// Create empty group node immediately
+		const groupId = randomHexString(16);
+		const groupNodeData = {
+			id: groupId,
+			type: "group",
+			label: "New Group", // Temporary placeholder
+			x: groupPos.x,
+			y: groupPos.y,
+			width: groupWidth,
+			height: groupHeight,
+			// No color specified = default gray for pre-created group
+		};
+
 		const canvasData = canvas.getData();
-		const mainEdge = canvasData.edges[canvasData.edges.length - 1]; // Last edge
-		const mainEdgeId = mainEdge?.id || randomHexString(16);
+		canvas.importData({
+			nodes: [...canvasData.nodes, groupNodeData],
+			edges: canvasData.edges,
+		});
+		await canvas.requestFrame();
+
+		const groupNode = canvas.nodes.get(groupId);
+		if (!groupNode) {
+			new Notice("Failed to create group node");
+			return;
+		}
+
+		// Determine edge sides based on node positions
+		const fromCenterX = node.x + node.width / 2;
+		const fromCenterY = node.y + node.height / 2;
+		const toCenterX = groupNode.x + groupNode.width / 2;
+		const toCenterY = groupNode.y + groupNode.height / 2;
+		
+		const deltaX = toCenterX - fromCenterX;
+		const deltaY = toCenterY - fromCenterY;
+		
+		let fromSide: string, toSide: string;
+		if (Math.abs(deltaX) > Math.abs(deltaY)) {
+			// Horizontal connection
+			if (deltaX > 0) {
+				fromSide = "right";
+				toSide = "left";
+			} else {
+				fromSide = "left";
+				toSide = "right";
+			}
+		} else {
+			// Vertical connection
+			if (deltaY > 0) {
+				fromSide = "bottom";
+				toSide = "top";
+			} else {
+				fromSide = "top";
+				toSide = "bottom";
+			}
+		}
+
+		// Create edge from source node to group with user question as label
+		const mainEdgeId = randomHexString(16);
+		addEdge(
+			canvas,
+			mainEdgeId,
+			{
+				fromOrTo: "from",
+				side: fromSide,
+				node: node,
+			},
+			{
+				fromOrTo: "to",
+				side: toSide,
+				node: groupNode,
+			},
+			userQuestion || "", // User question as edge label
+			{
+				isGenerated: true,
+			}
+		);
+		await canvas.requestFrame();
 
 		new Notice(
 			`Sending ${messages.length} notes with ${tokenCount} tokens to generate group...`
@@ -243,11 +369,13 @@ export async function generateGroupWithAI(
 		const mdParser = new IncrementalMarkdownParser();
 		const nodeCreator = new StreamingNodeCreator(canvas, node, settings);
 		
-		// Set placeholder information for main edge redirection
-		nodeCreator.setPlaceholder(placeholderNode, mainEdgeId, userQuestion || "");
+		// Set pre-created group information
+		// Use a semantic ID for the group (will be matched when AI generates <group id="...">)
+		const preCreatedGroupSemanticId = "g1"; // Default semantic ID for the first group
+		nodeCreator.setPreCreatedGroup(groupNode, preCreatedGroupSemanticId, mainEdgeId, userQuestion || "");
 		
 		let accumulatedResponse = "";
-		let lastPreviewUpdate = Date.now();
+		let lastNodeUpdate = Date.now();
 		let mdNodeIndex = 0;
 
 		await streamResponse(
@@ -264,29 +392,33 @@ export async function generateGroupWithAI(
 				}
 
 				if (!chunk) {
-					// Stream completed
+					// Stream completed - log full AI response
+					console.log("[GenerateGroup] ========== AI Response Complete ==========");
+					console.log("[GenerateGroup] User Question:", userQuestion || "(none)");
+					console.log("[GenerateGroup] Response Length:", accumulatedResponse.length, "characters");
+					console.log("[GenerateGroup] Full AI Response:");
+					console.log(accumulatedResponse);
+					console.log("[GenerateGroup] ===========================================");
+					
+					// Also log using logDebug for consistency
+					logDebug("AI Full Response", {
+						userQuestion: userQuestion || "(none)",
+						responseLength: accumulatedResponse.length,
+						fullResponse: accumulatedResponse,
+					});
 					return;
 				}
 
 				accumulatedResponse += chunk;
 				
-				// 1. Update placeholder preview (throttled to 100ms)
+				// Incremental parsing and node creation
 				const now = Date.now();
-				if (now - lastPreviewUpdate > 100) {
-					// Show last 500 characters as preview
-					const preview = accumulatedResponse.length > 500 
-						? "..." + accumulatedResponse.slice(-500) 
-						: accumulatedResponse;
-					placeholderNode.setText(preview);
-					lastPreviewUpdate = now;
-				}
-				
-				// 2. Incremental parsing and node creation
 				if (xmlParser) {
 					xmlParser.append(chunk);
 					
 					// IMPORTANT: Store edges first to build dependency graph
 					// This allows nodes to know their dependencies when being created
+					// and enables the "Connection-First" (连线优先) strategy.
 					const completeEdges = xmlParser.detectCompleteEdges();
 					completeEdges.forEach(edge => nodeCreator.storeEdge(edge));
 					
@@ -297,6 +429,24 @@ export async function generateGroupWithAI(
 						await canvas.requestFrame();
 					}
 					
+					// Real-time update for all nodes (including incomplete ones)
+					// This fulfills the requirement for all nodes to show content immediately.
+					// Throttled to 50ms for performance.
+					if (now - lastNodeUpdate > 50) {
+						// 1. Update partial groups (ensure they exist on canvas)
+						const incompleteGroups = xmlParser.detectIncompleteGroups();
+						for (const groupXML of incompleteGroups) {
+							await nodeCreator.updatePartialGroup(groupXML);
+						}
+
+						// 2. Update partial nodes (create if new, update text if existing)
+						const incompleteNodes = xmlParser.detectIncompleteNodes();
+						for (const nodeXML of incompleteNodes) {
+							await nodeCreator.updatePartialNode(nodeXML);
+						}
+						lastNodeUpdate = now;
+					}
+
 					// Detect and create groups
 					const completeGroups = xmlParser.detectCompleteGroups();
 					for (const groupXML of completeGroups) {
@@ -318,31 +468,45 @@ export async function generateGroupWithAI(
 		);
 
 		// Stream completed - handle remaining content
-		placeholderNode.setText("```Finalizing nodes and connections...```");
 		await sleep(200);
 		
 		// Process any remaining content
 		if (xmlParser) {
-			// Check for unparsed content
-			const remaining = xmlParser.getUnprocessedContent();
-			if (remaining.trim()) {
-				console.warn("[GenerateGroup] Unparsed XML content:", remaining.substring(0, 100));
+			// 1. Final update for all incomplete nodes/groups to ensure latest content is shown
+			const finalIncompleteGroups = xmlParser.detectIncompleteGroups();
+			for (const groupXML of finalIncompleteGroups) {
+				await nodeCreator.updatePartialGroup(groupXML);
 			}
-			
-			// Process any remaining edges that might have been parsed
+
+			const finalIncompleteNodes = xmlParser.detectIncompleteNodes();
+			for (const nodeXML of finalIncompleteNodes) {
+				await nodeCreator.updatePartialNode(nodeXML);
+			}
+
+			// 2. Process any remaining edges that might have been parsed
 			const remainingEdges = xmlParser.detectCompleteEdges();
 			remainingEdges.forEach(edge => nodeCreator.storeEdge(edge));
 			
-			// Process any remaining nodes that might have been parsed
+			// 3. Process any remaining nodes that might have been parsed
 			const remainingNodes = xmlParser.detectCompleteNodes();
 			for (const nodeXML of remainingNodes) {
 				await nodeCreator.createNodeFromXML(nodeXML);
 				await canvas.requestFrame();
 			}
 			
-			// Create all pending nodes (nodes without connections)
+			// 4. Create all pending nodes (nodes without connections)
 			await nodeCreator.createAllPendingNodes();
 			await canvas.requestFrame();
+
+			// Check for unparsed content and notify if significant
+			const remaining = xmlParser.getUnprocessedContent();
+			if (remaining.trim()) {
+				console.warn("[GenerateGroup] Unparsed XML content:", remaining);
+				// If there's a lot of unparsed content, it might mean the LLM output invalid XML
+				if (remaining.length > 50) {
+					new Notice("部分内容解析失败，请检查输出格式是否正确。", 5000);
+				}
+			}
 		} else if (mdParser) {
 			// Process last node if any
 			mdParser.append("\n---[NODE]---\n"); // Force final node detection
@@ -357,7 +521,30 @@ export async function generateGroupWithAI(
 		const edgeCount = await nodeCreator.createAllEdges();
 		await canvas.requestFrame();
 		
-		// Note: Placeholder is removed in redirectMainEdge() when first node is created
+		// Final update of group bounds to ensure all nodes are included
+		if (groupNode) {
+			// Force a final bounds update for the pre-created group
+			const { getNodesInGroup } = await import("../../utils/groupUtils");
+			const nodesInGroup = getNodesInGroup(groupNode, canvas);
+			if (nodesInGroup.length > 0) {
+				// Update bounds one more time to ensure everything fits
+				const padding = settings.groupPadding || 60;
+				let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+				nodesInGroup.forEach(node => {
+					minX = Math.min(minX, node.x);
+					minY = Math.min(minY, node.y);
+					maxX = Math.max(maxX, node.x + node.width);
+					maxY = Math.max(maxY, node.y + node.height);
+				});
+				groupNode.setData({
+					x: minX - padding,
+					y: minY - padding,
+					width: maxX - minX + padding * 2,
+					height: maxY - minY + padding * 2,
+				});
+				await canvas.requestFrame();
+			}
+		}
 		
 		// Success notification
 		const totalNodes = nodeCreator.getCreatedNodeCount();
@@ -386,7 +573,7 @@ export const addGenerateGroupButton = async (
 	menuEl: HTMLElement
 ) => {
 	const buttonEl = createEl("button", "clickable-icon gpt-menu-item");
-	setTooltip(buttonEl, "Generate Group with AI", {
+	setTooltip(buttonEl, "AI 生成分组", {
 		placement: "top",
 	});
 	setIcon(buttonEl, "lucide-layers");

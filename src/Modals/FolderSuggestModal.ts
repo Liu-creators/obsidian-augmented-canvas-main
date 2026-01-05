@@ -6,6 +6,7 @@ export default class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
 	constructor(app: App, onChoose: (folder: TFolder) => void) {
 		super(app);
 		this.onChoose = onChoose;
+		this.setPlaceholder("搜索文件夹...");
 	}
 
 	getItems(): TFolder[] {

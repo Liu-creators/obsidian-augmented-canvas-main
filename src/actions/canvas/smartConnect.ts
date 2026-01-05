@@ -66,18 +66,18 @@ export async function smartConnectNodes(
 ): Promise<void> {
 	// Validate API key
 	if (!settings.apiKey) {
-		new Notice("Please set your DeepSeek API key in the plugin settings");
+		new Notice("请在插件设置中设置 DeepSeek API 密钥");
 		return;
 	}
 	
 	// Validate selection
 	if (!selectedNodes || selectedNodes.length < 2) {
-		new Notice("Please select at least 2 nodes to create connections");
+		new Notice("请选择至少 2 个节点以创建连线");
 		return;
 	}
 	
 	if (selectedNodes.length > 20) {
-		new Notice("Too many nodes selected (max 20). Please select fewer nodes.");
+		new Notice("选择的节点过多（最多 20 个）。请选择较少的节点。");
 		return;
 	}
 	
@@ -86,7 +86,7 @@ export async function smartConnectNodes(
 	const canvas = maybeCanvasView?.canvas;
 	
 	if (!canvas) {
-		new Notice("No active canvas found. Please open a canvas view.");
+		new Notice("未找到活动的画布。请打开一个画布视图。");
 		return;
 	}
 	

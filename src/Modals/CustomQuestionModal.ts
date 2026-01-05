@@ -2,7 +2,7 @@ import { Modal, App } from "obsidian";
 
 export class CustomQuestionModal extends Modal {
 	onSubmit: (input: string) => void;
-	private placeholder: string = "Write your question here";
+	private placeholder: string = "在此输入您的问题";
 	private textareaEl?: HTMLTextAreaElement;
 
 	constructor(app: App, onSubmit: (input: string) => void) {
@@ -43,7 +43,7 @@ export class CustomQuestionModal extends Modal {
 		});
 
 		// Create and append a submit button
-		let submitBtn = contentEl.createEl("button", { text: "Ask AI" });
+		let submitBtn = contentEl.createEl("button", { text: "提问 AI" });
 		submitBtn.addEventListener("click", (e) => {
 			console.log("Ask AI button clicked, question:", textareaEl.value);
 			e.preventDefault();

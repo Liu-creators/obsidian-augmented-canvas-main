@@ -27,6 +27,9 @@ export interface NodeXML {
 	
 	/** Markdown content */
 	content: string;
+
+	/** Optional: Group ID if this node belongs to a group */
+	groupId?: string;
 }
 
 /**

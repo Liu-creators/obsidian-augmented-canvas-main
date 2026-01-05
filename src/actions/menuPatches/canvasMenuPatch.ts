@@ -54,7 +54,7 @@ const addNodeMenuItems = (
 
 	// Add "Ask question with AI" button
 	const buttonEl_AskQuestion = createEl("button", "clickable-icon gpt-menu-item");
-	setTooltip(buttonEl_AskQuestion, "Ask question with AI", { placement: "top" });
+	setTooltip(buttonEl_AskQuestion, "针对卡片提问", { placement: "top" });
 	setIcon(buttonEl_AskQuestion, "lucide-help-circle");
 	menuEl.appendChild(buttonEl_AskQuestion);
 	buttonEl_AskQuestion.addEventListener("click", () => {
@@ -80,7 +80,7 @@ const addNodeMenuItems = (
 
 	// Add "AI generated questions" button
 	const buttonEl_AIQuestions = createEl("button", "clickable-icon gpt-menu-item");
-	setTooltip(buttonEl_AIQuestions, "AI generated questions", { placement: "top" });
+	setTooltip(buttonEl_AIQuestions, "AI 生成相关问题", { placement: "top" });
 	setIcon(buttonEl_AIQuestions, "lucide-file-question");
 	menuEl.appendChild(buttonEl_AIQuestions);
 	buttonEl_AIQuestions.addEventListener("click", () =>
@@ -104,7 +104,7 @@ const addMultiNodeMenuItems = (
 ) => {
 	// Add "Smart Connect" button
 	const buttonEl_SmartConnect = createEl("button", "clickable-icon gpt-menu-item");
-	setTooltip(buttonEl_SmartConnect, "Smart Connect - AI creates connections", { placement: "top" });
+	setTooltip(buttonEl_SmartConnect, "智能连线 - AI 创建连接", { placement: "top" });
 	setIcon(buttonEl_SmartConnect, "lucide-git-branch");
 	menuEl.appendChild(buttonEl_SmartConnect);
 	buttonEl_SmartConnect.addEventListener("click", () => {
@@ -114,13 +114,13 @@ const addMultiNodeMenuItems = (
 				await smartConnectNodes(app, settings, selectedNodes, instruction);
 			}
 		);
-		modal.setPlaceholder("e.g., 'Connect by causal relationships' or '按时间顺序连线'");
+		modal.setPlaceholder("例如：'按因果关系连接' 或 '按时间顺序连线'");
 		modal.open();
 	});
 
 	// Add "Smart Grouping" button
 	const buttonEl_SmartGroup = createEl("button", "clickable-icon gpt-menu-item");
-	setTooltip(buttonEl_SmartGroup, "Smart Grouping - AI organizes into groups", { placement: "top" });
+	setTooltip(buttonEl_SmartGroup, "智能分组 - AI 组织成组", { placement: "top" });
 	setIcon(buttonEl_SmartGroup, "lucide-group");
 	menuEl.appendChild(buttonEl_SmartGroup);
 	buttonEl_SmartGroup.addEventListener("click", () => {
@@ -130,7 +130,7 @@ const addMultiNodeMenuItems = (
 				await smartGroupExistingNodes(app, settings, selectedNodes, instruction);
 			}
 		);
-		modal.setPlaceholder("e.g., 'Group by technology stack' or '按优先级分类'");
+		modal.setPlaceholder("例如：'按技术栈分组' 或 '按优先级分类'");
 		modal.open();
 	});
 };

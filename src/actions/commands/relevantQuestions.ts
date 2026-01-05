@@ -18,7 +18,7 @@ export const handleAddRelevantQuestions = async (
 	app: App,
 	settings: AugmentedCanvasSettings
 ) => {
-	new Notice("Generating relevant questions...");
+	new Notice("正在生成相关问题...");
 
 	const files = await app.vault.getMarkdownFiles();
 
@@ -51,7 +51,7 @@ ${RELEVANT_QUESTION_SYSTEM_PROMPT}
 	);
 	// console.log({ gptResponse });
 
-	await createCanvasGroup(app, "Questions", gptResponse.questions);
+	await createCanvasGroup(app, "相关问题", gptResponse.questions);
 
-	new Notice("Generating relevant questions done successfully.");
+	new Notice("相关问题生成成功。");
 };

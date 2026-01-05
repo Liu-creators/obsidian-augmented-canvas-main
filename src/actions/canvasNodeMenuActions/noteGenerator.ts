@@ -26,30 +26,11 @@ const assistantColor = "6";
  */
 const placeholderNoteHeight = 60;
 
-/**
- * Height to use for new empty note
- */
-const emptyNoteHeight = 100;
-
-const NOTE_MAX_WIDTH = 400;
 export const NOTE_MIN_HEIGHT = 400;
 export const NOTE_INCR_HEIGHT_STEP = 150;
 
 // TODO : remove
 const logDebug = (text: any) => null;
-
-// const SYSTEM_PROMPT2 = `
-// You must respond in this JSON format: {
-// 	"response": Your response, must be in markdown,
-// 	"questions": Follow up questions the user could ask based on your response, must be an array
-// }
-// The response must be in the same language the user used.
-// `.trim();
-
-const SYSTEM_PROMPT = `
-You must respond in markdown.
-The response must be in the same language the user used.
-`.trim();
 
 export function noteGenerator(
 	app: App,
@@ -61,7 +42,7 @@ export function noteGenerator(
 	const canCallAI = () => {
 		// return true;
 		if (!settings.apiKey) {
-			new Notice("Please set your DeepSeek API key in the plugin settings");
+			new Notice("请在插件设置中设置 DeepSeek API 密钥");
 			return false;
 		}
 
@@ -76,7 +57,7 @@ export function noteGenerator(
 	};
 
 	const isSystemPromptNode = (text: string) =>
-		text.trim().startsWith("SYSTEM PROMPT");
+		text.trim().startsWith("系统提示词");
 
 	const getSystemPrompt = async (node: CanvasNode) => {
 		// TODO
@@ -85,7 +66,7 @@ export function noteGenerator(
 		await visitNodeAndAncestors(node, async (n: CanvasNode) => {
 			const text = await readNodeContent(n);
 			if (text && isSystemPromptNode(text)) {
-				foundPrompt = text.replace("SYSTEM PROMPT", "").trim();
+				foundPrompt = text.replace("系统提示词", "").trim();
 				return false;
 			} else {
 				return true;
@@ -157,7 +138,7 @@ export function noteGenerator(
 						`Truncating node text from ${nodeText.length} to ${truncateTextTo} characters`
 					);
 					new Notice(
-						`Truncating node text from ${nodeText.length} to ${truncateTextTo} characters`
+						`节点文本从 ${nodeText.length} 截断至 ${truncateTextTo} 字符`
 					);
 					nodeText = nodeText.slice(0, truncateTextTo);
 					keptNodeTokens = keepTokens.length;
@@ -248,7 +229,7 @@ export function noteGenerator(
 			if (!messages.length) {
 				const nodeText = nodeContent?.trim() || "";
 				if (!nodeText && !question) {
-					new Notice("No content found in the selected note. Please add some content or ask a question.");
+					new Notice("所选笔记中未找到内容。请添加一些内容或提出问题。");
 					return;
 				}
 				// If there's a question but no node content, use the question as the message
@@ -270,7 +251,7 @@ export function noteGenerator(
 				created = createNode(
 					canvas,
 					{
-						text: `\`\`\`Calling AI (${settings.apiModel})...\`\`\``,
+						text: `\`\`\`正在调用 AI (${settings.apiModel})...\`\`\``,
 						size: { height: placeholderNoteHeight },
 					},
 					node,
@@ -284,12 +265,12 @@ export function noteGenerator(
 			} else {
 				created = toNode;
 				created.setText(
-					`\`\`\`Calling AI (${settings.apiModel})...\`\`\``
+					`\`\`\`正在调用 AI (${settings.apiModel})...\`\`\``
 				);
 			}
 
 			new Notice(
-				`Sending ${messages.length} notes with ${tokenCount} tokens to DeepSeek AI`
+				`正在向 DeepSeek AI 发送 ${messages.length} 条笔记（共 ${tokenCount} 个 token）`
 			);
 
 			try {
@@ -373,7 +354,7 @@ export function noteGenerator(
 				const errorMessage = error?.message || error?.toString() || "Unknown error";
 				console.error("DeepSeek AI Error:", error);
 				logDebug("DeepSeek AI Error: " + errorMessage);
-				new Notice(`Error calling DeepSeek AI: ${errorMessage}`);
+				new Notice(`调用 DeepSeek AI 出错: ${errorMessage}`);
 				if (!toNode && created) {
 					canvas.removeNode(created);
 				}

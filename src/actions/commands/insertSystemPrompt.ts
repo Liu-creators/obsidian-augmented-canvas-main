@@ -4,13 +4,13 @@ import { SystemPrompt } from "src/settings/AugmentedCanvasSettings";
 import { getActiveCanvas } from "src/utils";
 
 export const insertSystemPrompt = (app: App, systemPrompt: SystemPrompt) => {
-	new Notice(`Selected ${systemPrompt.act}`);
+	new Notice(`已选择: ${systemPrompt.act}`);
 
 	const canvas = getActiveCanvas(app);
 	if (!canvas) return;
 
 	const text = `
-SYSTEM PROMPT
+系统提示词
 
 ${systemPrompt.prompt.trim()}
 `.trim();

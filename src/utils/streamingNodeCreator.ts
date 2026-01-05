@@ -9,7 +9,7 @@ import { ParsedNode } from "./groupGenerator";
 import { AugmentedCanvasSettings } from "../settings/AugmentedCanvasSettings";
 import { gridToPixel, DEFAULT_GRID_OPTIONS } from "./coordinateSystem";
 import { getColorForType } from "./typeMapping";
-import { addEdge } from "../obsidian/canvas-patches";
+import { addEdge, calcHeight } from "../obsidian/canvas-patches";
 import { randomHexString } from "../utils";
 import { 
 	analyzeBestDirection, 
@@ -50,6 +50,14 @@ export class StreamingNodeCreator {
 	private nodeDependencies: Map<string, string[]> = new Map(); // Store node dependencies (connected nodes via edges)
 	private createdNodeIds: Set<string> = new Set(); // Track created node IDs
 	private creatingNodes: Set<string> = new Set(); // Track nodes currently being created (to avoid circular dependencies)
+	private groupMembers: Map<string, string[]> = new Map(); // Group ID -> Node IDs mapping
+	private nodeToGroup: Map<string, string> = new Map(); // Node ID -> Group ID mapping
+	
+	// Pre-created group support
+	private preCreatedGroup: CanvasNode | null = null; // Pre-created group node
+	private preCreatedGroupSemanticId: string | null = null; // Semantic ID for pre-created group
+	private preCreatedGroupMainEdgeId: string | null = null; // Main edge ID for pre-created group
+	private preCreatedGroupUserQuestion: string = ""; // User question for pre-created group
 	
 	constructor(
 		canvas: Canvas,
@@ -65,6 +73,7 @@ export class StreamingNodeCreator {
 	
 	/**
 	 * Set placeholder and main edge information (called at streaming start)
+	 * @deprecated Use setPreCreatedGroup instead for immediate group creation
 	 */
 	public setPlaceholder(
 		placeholder: CanvasNode,
@@ -74,6 +83,28 @@ export class StreamingNodeCreator {
 		this.placeholderNode = placeholder;
 		this.mainEdgeId = mainEdgeId;
 		this.userQuestion = userQuestion;
+	}
+	
+	/**
+	 * Set pre-created group information (called when group is created immediately)
+	 */
+	public setPreCreatedGroup(
+		group: CanvasNode,
+		semanticId: string,
+		mainEdgeId: string,
+		userQuestion: string
+	): void {
+		this.preCreatedGroup = group;
+		this.preCreatedGroupSemanticId = semanticId;
+		this.preCreatedGroupMainEdgeId = mainEdgeId;
+		this.preCreatedGroupUserQuestion = userQuestion;
+		
+		// Store the group in the createdNodeMap using semantic ID
+		this.createdNodeMap.set(semanticId, group);
+		this.groupMembers.set(semanticId, []);
+		
+		// Mark as first node/group for edge redirection (no need to redirect since edge already exists)
+		this.firstNodeOrGroup = group;
 	}
 	
 	/**
@@ -88,6 +119,139 @@ export class StreamingNodeCreator {
 		
 		// Use dependency-aware creation
 		return await this.createNodeWithDependencies(nodeXML);
+	}
+
+	/**
+	 * Update an existing node with partial content during streaming
+	 */
+	async updatePartialNode(nodeXML: NodeXML): Promise<void> {
+		const node = this.createdNodeMap.get(nodeXML.id);
+		
+		if (node) {
+			// If node exists, update its text and height if it changed
+			if (node.text !== nodeXML.content) {
+				node.setText(nodeXML.content);
+				
+				// Recalculate height based on new content to ensure group fits
+				const newHeight = Math.max(
+					this.settings.gridNodeHeight || 200,
+					calcHeight({ text: nodeXML.content })
+				);
+				
+				if (Math.abs(node.height - newHeight) > 1) {
+					node.setData({ height: newHeight });
+				}
+				
+				// If node is in a group, update group bounds
+				const groupId = this.nodeToGroup.get(nodeXML.id);
+				if (groupId) {
+					await this.updateGroupBounds(groupId);
+				}
+			}
+		} else {
+			// If node doesn't exist yet, create it
+			await this.createNodeFromXML(nodeXML);
+		}
+	}
+
+	/**
+	 * Update an existing group or create a partial group during streaming
+	 */
+	async updatePartialGroup(groupXML: GroupXML): Promise<void> {
+		// Check if this is the pre-created group
+		const isPreCreatedGroup = this.preCreatedGroup && 
+			this.preCreatedGroupSemanticId === groupXML.id;
+		
+		if (isPreCreatedGroup && this.preCreatedGroup) {
+			// Update pre-created group title if changed
+			const data = this.preCreatedGroup.getData();
+			if (groupXML.title && groupXML.title !== "New Group" && data.label !== groupXML.title) {
+				await this.updateGroupTitle(groupXML.id, groupXML.title);
+			}
+			return;
+		}
+		
+		const groupNode = this.createdNodeMap.get(groupXML.id);
+		
+		if (groupNode) {
+			// If group exists, maybe update title if it changed
+			const data = groupNode.getData();
+			if (groupXML.title && data.label !== groupXML.title) {
+				await this.updateGroupTitle(groupXML.id, groupXML.title);
+			}
+		} else {
+			// Create a partial group with no nodes yet
+			await this.createPartialGroupDirectly(groupXML);
+		}
+	}
+	
+	/**
+	 * Update group title
+	 */
+	async updateGroupTitle(groupSemanticId: string, newTitle: string): Promise<void> {
+		const groupNode = this.createdNodeMap.get(groupSemanticId);
+		if (!groupNode) {
+			console.warn(`[StreamingNodeCreator] Group not found for title update: ${groupSemanticId}`);
+			return;
+		}
+		
+		const data = groupNode.getData();
+		if (data.type !== "group") {
+			console.warn(`[StreamingNodeCreator] Node is not a group: ${groupSemanticId}`);
+			return;
+		}
+		
+		if (data.label !== newTitle) {
+			groupNode.setData({ label: newTitle });
+			await this.canvas.requestFrame();
+			console.log(`[StreamingNodeCreator] Updated group title: "${newTitle}"`);
+		}
+	}
+
+	/**
+	 * Create a partial group with no nodes (internal method)
+	 */
+	private async createPartialGroupDirectly(groupXML: GroupXML): Promise<void> {
+		try {
+			const groupPixelPos = this.calculatePositionFromRelations(groupXML.id);
+			const groupId = randomHexString(16);
+			const groupPadding = this.settings.groupPadding || 60;
+
+			const groupNodeData = {
+				id: groupId,
+				type: "group",
+				label: groupXML.title,
+				x: groupPixelPos.x,
+				y: groupPixelPos.y,
+				width: 400, // Default initial width
+				height: 300, // Default initial height
+				color: this.settings.defaultGroupColor || "4",
+			};
+
+			const data = this.canvas.getData();
+			this.canvas.importData({
+				nodes: [...data.nodes, groupNodeData],
+				edges: data.edges,
+			});
+
+			await this.canvas.requestFrame();
+
+			const groupNode = Array.from(this.canvas.nodes.values()).find(
+				n => n.id === groupId
+			);
+
+			if (groupNode) {
+				this.createdNodeMap.set(groupXML.id, groupNode);
+				this.groupMembers.set(groupXML.id, []);
+				
+				if (!this.firstNodeOrGroup) {
+					this.firstNodeOrGroup = groupNode;
+					await this.redirectMainEdge();
+				}
+			}
+		} catch (error) {
+			console.error(`[StreamingNodeCreator] Failed to create partial group ${groupXML.id}:`, error);
+		}
 	}
 	
 	/**
@@ -221,9 +385,37 @@ export class StreamingNodeCreator {
 			this.nodePositions.set(nodeXML.id, { x: pixelPos.x, y: pixelPos.y });
 			this.createdNodeIds.add(nodeXML.id);
 			this.nodeCounter++;
+
+			// Handle group membership if specified in XML
+			if (nodeXML.groupId) {
+				const groupSemanticId = nodeXML.groupId;
+				this.nodeToGroup.set(nodeXML.id, groupSemanticId);
+				
+				// Check if this is the pre-created group
+				if (this.preCreatedGroup && this.preCreatedGroupSemanticId === groupSemanticId) {
+					// Node belongs to pre-created group - ensure it's tracked
+					if (!this.groupMembers.has(groupSemanticId)) {
+						this.groupMembers.set(groupSemanticId, []);
+					}
+					if (!this.groupMembers.get(groupSemanticId)!.includes(nodeXML.id)) {
+						this.groupMembers.get(groupSemanticId)!.push(nodeXML.id);
+					}
+					
+					// Update group bounds immediately
+					await this.updateGroupBounds(groupSemanticId);
+				} else {
+					// Regular group handling
+					if (!this.groupMembers.has(groupSemanticId)) {
+						this.groupMembers.set(groupSemanticId, []);
+					}
+					if (!this.groupMembers.get(groupSemanticId)!.includes(nodeXML.id)) {
+						this.groupMembers.get(groupSemanticId)!.push(nodeXML.id);
+					}
+				}
+			}
 			
-			// If this is the first node, record it and redirect main edge
-			if (!this.firstNodeOrGroup) {
+			// If this is the first node, record it and redirect main edge (only if no pre-created group)
+			if (!this.firstNodeOrGroup && !this.preCreatedGroup) {
 				this.firstNodeOrGroup = newNode;
 				await this.redirectMainEdge();
 			}
@@ -231,6 +423,12 @@ export class StreamingNodeCreator {
 			// Check if any pending edges can now be created
 			await this.checkAndCreatePendingEdges(nodeXML.id);
 			
+			// If node is in a group, update group bounds
+			const groupSemanticId = this.nodeToGroup.get(nodeXML.id);
+			if (groupSemanticId) {
+				await this.updateGroupBounds(groupSemanticId);
+			}
+
 			console.log(`[StreamingNodeCreator] Created node ${nodeXML.id} at (${pixelPos.x}, ${pixelPos.y})`);
 			
 			return newNode;
@@ -242,31 +440,74 @@ export class StreamingNodeCreator {
 	
 	/**
 	 * Create a group with nested nodes from XML format
+	 * Supports reusing pre-created group if semantic ID matches
 	 */
 	async createGroupFromXML(groupXML: GroupXML): Promise<void> {
 		try {
-			// Group uses default position or relationship-based position
-			const groupPixelPos = this.calculatePositionFromRelations(groupXML.id);
+			// Check if this group matches the pre-created group
+			const isPreCreatedGroup = this.preCreatedGroup && 
+				this.preCreatedGroupSemanticId === groupXML.id;
+			
+			let groupNode: CanvasNode;
+			let groupId: string;
+			let groupPixelPos: { x: number; y: number };
+			
+			if (isPreCreatedGroup && this.preCreatedGroup) {
+				// Reuse pre-created group
+				groupNode = this.preCreatedGroup;
+				groupId = groupNode.id;
+				groupPixelPos = { x: groupNode.x, y: groupNode.y };
+				
+				// Update group title if AI provided one
+				if (groupXML.title && groupXML.title !== "New Group") {
+					await this.updateGroupTitle(groupXML.id, groupXML.title);
+				}
+				
+				console.log(`[StreamingNodeCreator] Reusing pre-created group ${groupXML.id}`);
+			} else {
+				// Create new group (fallback for cases where AI generates multiple groups)
+				groupPixelPos = this.calculatePositionFromRelations(groupXML.id);
+				groupId = randomHexString(16);
+				
+				// Create the group node later after calculating bounds
+				groupNode = null as any; // Will be set after nodes are created
+			}
 			
 			const groupPadding = this.settings.groupPadding || 60;
-			const groupId = randomHexString(16);
+			
+			// Track group members for auto-resizing
+			const memberIds: string[] = [];
+			if (this.groupMembers.has(groupXML.id)) {
+				// Preserve existing members if reusing pre-created group
+				memberIds.push(...(this.groupMembers.get(groupXML.id) || []));
+			}
+			this.groupMembers.set(groupXML.id, memberIds);
+
+			// Detect if this is a quadrant layout (four nodes with symmetric negative/positive coordinates)
+			const isQuadrantLayout = this.detectQuadrantLayout(groupXML.nodes);
 			
 			// Create nodes inside group
 			const groupNodes: any[] = [];
 			for (const nodeXML of groupXML.nodes) {
-				const nodePixelPos = gridToPixel(
-					{ row: nodeXML.row, col: nodeXML.col },
-					{
-						x: groupPixelPos.x + groupPadding,
-						y: groupPixelPos.y + groupPadding,
-						width: 0,
-						height: 0
-					} as any,
-					{
-						nodeWidth: this.settings.gridNodeWidth || DEFAULT_GRID_OPTIONS.nodeWidth,
-						nodeHeight: this.settings.gridNodeHeight || DEFAULT_GRID_OPTIONS.nodeHeight,
-						gap: this.settings.gridGap || DEFAULT_GRID_OPTIONS.gap,
+				// Check if node already exists (might have been created by createNodeFromXML/updatePartialNode)
+				const existingNode = this.createdNodeMap.get(nodeXML.id);
+				
+				if (existingNode && existingNode.x !== undefined) {
+					// Node already exists and is rendered, just update its groupId mapping
+					this.nodeToGroup.set(nodeXML.id, groupXML.id); // Use semantic ID
+					if (!memberIds.includes(nodeXML.id)) {
+						memberIds.push(nodeXML.id);
 					}
+					// We'll update its position later if needed, but for now we keep its current pos
+					continue;
+				}
+
+				// Calculate node position with optimized spacing for quadrant layouts
+				const nodePixelPos = this.calculateNodePositionInGroup(
+					nodeXML,
+					groupPixelPos,
+					groupPadding,
+					isQuadrantLayout
 				);
 				
 				const color = getColorForType(nodeXML.type);
@@ -284,55 +525,168 @@ export class StreamingNodeCreator {
 				});
 				
 				// Store mapping for edge creation (using semantic ID)
-				// We'll need to get the actual CanvasNode after import
 				this.createdNodeMap.set(nodeXML.id, { id: nodeId } as any);
+				this.nodeToGroup.set(nodeXML.id, groupXML.id); // Use semantic ID for group mapping
+				memberIds.push(nodeXML.id);
 				this.nodeCounter++;
 			}
 			
-			// Calculate group bounds
-			if (groupNodes.length > 0) {
-				const minX = Math.min(...groupNodes.map(n => n.x));
-				const minY = Math.min(...groupNodes.map(n => n.y));
-				const maxX = Math.max(...groupNodes.map(n => n.x + n.width));
-				const maxY = Math.max(...groupNodes.map(n => n.y + n.height));
-				
-				const groupNodeData = {
-					id: groupId,
-					type: "group",
-					label: groupXML.title,
-					x: minX - groupPadding,
-					y: minY - groupPadding,
-					width: maxX - minX + groupPadding * 2,
-					height: maxY - minY + groupPadding * 2,
-					color: this.settings.defaultGroupColor || "4",
-				};
-				
-				// Import group and nodes
-				const data = this.canvas.getData();
-				this.canvas.importData({
-					nodes: [...data.nodes, groupNodeData, ...groupNodes],
-					edges: data.edges,
-				});
-				
-				await this.canvas.requestFrame();
-				
-				// If this is the first node/group, record it and redirect main edge
-				if (!this.firstNodeOrGroup) {
-					// Get the created group node reference
-					const groupNode = Array.from(this.canvas.nodes.values()).find(
-						n => n.id === groupId
-					);
+			// Handle group creation or node addition
+			if (isPreCreatedGroup && this.preCreatedGroup) {
+				// For pre-created group, just add nodes and update bounds
+				if (groupNodes.length > 0) {
+					const data = this.canvas.getData();
+					this.canvas.importData({
+						nodes: [...data.nodes, ...groupNodes],
+						edges: data.edges,
+					});
 					
-					if (groupNode) {
-						this.firstNodeOrGroup = groupNode;
-						await this.redirectMainEdge();
+					await this.canvas.requestFrame();
+					
+					// Get actual CanvasNode references for created nodes
+					for (const nodeXML of groupXML.nodes) {
+						const actualNode = Array.from(this.canvas.nodes.values()).find(
+							n => n.id === this.createdNodeMap.get(nodeXML.id)?.id
+						);
+						if (actualNode) {
+							this.createdNodeMap.set(nodeXML.id, actualNode);
+							this.createdNodeIds.add(nodeXML.id);
+						}
 					}
+					
+					// Update group bounds to include new nodes
+					await this.updateGroupBounds(groupXML.id);
 				}
 				
-				console.log(`[StreamingNodeCreator] Created group ${groupXML.id} with ${groupXML.nodes.length} nodes`);
+				console.log(`[StreamingNodeCreator] Added ${groupXML.nodes.length} nodes to pre-created group ${groupXML.id}`);
+			} else {
+				// Create new group (fallback for multiple groups)
+				if (groupNodes.length > 0) {
+					const minX = Math.min(...groupNodes.map(n => n.x));
+					const minY = Math.min(...groupNodes.map(n => n.y));
+					const maxX = Math.max(...groupNodes.map(n => n.x + n.width));
+					const maxY = Math.max(...groupNodes.map(n => n.y + n.height));
+					
+					const groupNodeData = {
+						id: groupId,
+						type: "group",
+						label: groupXML.title,
+						x: minX - groupPadding,
+						y: minY - groupPadding,
+						width: maxX - minX + groupPadding * 2,
+						height: maxY - minY + groupPadding * 2,
+						color: this.settings.defaultGroupColor || "4",
+					};
+					
+					// Import group and nodes
+					const data = this.canvas.getData();
+					this.canvas.importData({
+						nodes: [...data.nodes, groupNodeData, ...groupNodes],
+						edges: data.edges,
+					});
+					
+					await this.canvas.requestFrame();
+					
+					// Get actual CanvasNode references
+					groupNode = Array.from(this.canvas.nodes.values()).find(
+						n => n.id === groupId
+					) as CanvasNode;
+					
+					if (groupNode) {
+						this.createdNodeMap.set(groupXML.id, groupNode);
+					}
+					
+					// Get actual CanvasNode references for created nodes
+					for (const nodeXML of groupXML.nodes) {
+						const actualNode = Array.from(this.canvas.nodes.values()).find(
+							n => n.id === this.createdNodeMap.get(nodeXML.id)?.id
+						);
+						if (actualNode) {
+							this.createdNodeMap.set(nodeXML.id, actualNode);
+							this.createdNodeIds.add(nodeXML.id);
+						}
+					}
+
+					// If this is the first node/group, record it and redirect main edge
+					if (!this.firstNodeOrGroup) {
+						if (groupNode) {
+							this.firstNodeOrGroup = groupNode;
+							await this.redirectMainEdge();
+						}
+					}
+					
+					console.log(`[StreamingNodeCreator] Created group ${groupXML.id} with ${groupXML.nodes.length} nodes`);
+				}
 			}
 		} catch (error) {
 			console.error(`[StreamingNodeCreator] Failed to create group ${groupXML.id}:`, error);
+		}
+	}
+
+	/**
+	 * Update group bounds to fit all member nodes
+	 * This ensures the group container always contains its children as they grow
+	 */
+	private async updateGroupBounds(groupId: string): Promise<void> {
+		const groupNode = this.createdNodeMap.get(groupId);
+		if (!groupNode) return;
+
+		// Check if it's a group node using getData()
+		const data = groupNode.getData();
+		if (data.type !== "group") return;
+
+		const memberSemanticIds = this.groupMembers.get(groupId);
+		if (!memberSemanticIds || memberSemanticIds.length === 0) {
+			// If no members yet, set a small default size
+			if (groupNode.width !== 400 || groupNode.height !== 300) {
+				groupNode.setData({ width: 400, height: 300 });
+				await this.canvas.requestFrame();
+			}
+			return;
+		}
+
+		const memberNodes: CanvasNode[] = [];
+		for (const id of memberSemanticIds) {
+			const node = this.createdNodeMap.get(id);
+			// Only include nodes that are already rendered (have x/y)
+			if (node && node.x !== undefined) {
+				memberNodes.push(node);
+			}
+		}
+
+		if (memberNodes.length === 0) return;
+
+		const padding = this.settings.groupPadding || 60;
+		
+		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+		memberNodes.forEach(node => {
+			minX = Math.min(minX, node.x);
+			minY = Math.min(minY, node.y);
+			maxX = Math.max(maxX, node.x + node.width);
+			maxY = Math.max(maxY, node.y + node.height);
+		});
+
+		const newX = minX - padding;
+		const newY = minY - padding;
+		const newWidth = maxX - minX + padding * 2;
+		const newHeight = maxY - minY + padding * 2;
+
+		// Only update if dimensions changed significantly to avoid jitter and performance issues
+		// Threshold of 2 pixels is used to prevent micro-adjustments
+		if (Math.abs(groupNode.x - newX) > 2 || 
+			Math.abs(groupNode.y - newY) > 2 || 
+			Math.abs(groupNode.width - newWidth) > 2 || 
+			Math.abs(groupNode.height - newHeight) > 2) {
+			
+			groupNode.setData({
+				x: newX,
+				y: newY,
+				width: newWidth,
+				height: newHeight
+			});
+			
+			await this.canvas.requestFrame();
 		}
 	}
 	
@@ -479,8 +833,15 @@ export class StreamingNodeCreator {
 	 */
 	async createAllEdges(): Promise<number> {
 		let createdCount = 0;
+		let skippedCount = 0;
 		
 		for (const edge of this.pendingEdges) {
+			// Skip if already created
+			const edgeKey = `${edge.from}-${edge.to}`;
+			if (this.createdEdges.has(edgeKey)) {
+				continue;
+			}
+
 			const fromNode = this.createdNodeMap.get(edge.from);
 			const toNode = this.createdNodeMap.get(edge.to);
 			
@@ -488,49 +849,30 @@ export class StreamingNodeCreator {
 				console.warn(
 					`[StreamingNodeCreator] Skipping edge: ${edge.from} -> ${edge.to} (nodes not found)`
 				);
+				skippedCount++;
 				continue;
 			}
 			
 			// If nodes are placeholder objects (from groups), skip edge creation
-			if (!fromNode.x || !toNode.x) {
+			if (fromNode.x === undefined || toNode.x === undefined) {
 				console.warn(
 					`[StreamingNodeCreator] Skipping edge: ${edge.from} -> ${edge.to} (nodes are placeholders)`
 				);
+				skippedCount++;
 				continue;
 			}
 			
 			try {
-				// Determine edge sides based on node positions
-				const { fromSide, toSide } = this.determineEdgeSides(fromNode, toNode);
-				
-				// Create edge
-				addEdge(
-					this.canvas,
-					randomHexString(16),
-					{
-						fromOrTo: "from",
-						side: fromSide,
-						node: fromNode,
-					},
-					{
-						fromOrTo: "to",
-						side: toSide,
-						node: toNode,
-					},
-					edge.label,
-					{
-						isGenerated: true,
-					}
-				);
-				
+				await this.createEdgeImmediately(edge, fromNode, toNode);
 				createdCount++;
-				
-				console.log(
-					`[StreamingNodeCreator] Created edge: ${edge.from} -> ${edge.to} (${edge.label || "no label"})`
-				);
 			} catch (error) {
 				console.error(`[StreamingNodeCreator] Failed to create edge ${edge.from} -> ${edge.to}:`, error);
+				skippedCount++;
 			}
+		}
+		
+		if (skippedCount > 0) {
+			console.log(`[StreamingNodeCreator] Finished edge creation: ${createdCount} created, ${skippedCount} skipped.`);
 		}
 		
 		return createdCount;
@@ -858,6 +1200,95 @@ export class StreamingNodeCreator {
 			} else {
 				return { fromSide: "top", toSide: "bottom" };
 			}
+		}
+	}
+
+	/**
+	 * Detect if nodes form a quadrant layout pattern
+	 * Quadrant layout: 4 nodes with symmetric coordinates like (-1,-1), (-1,1), (1,-1), (1,1)
+	 */
+	private detectQuadrantLayout(nodes: NodeXML[]): boolean {
+		if (nodes.length !== 4) return false;
+		
+		const coords = nodes.map(n => ({ row: n.row || 0, col: n.col || 0 }));
+		
+		// Check if coordinates form a 2x2 grid with symmetric distribution
+		const rows = new Set(coords.map(c => c.row));
+		const cols = new Set(coords.map(c => c.col));
+		
+		// Should have exactly 2 distinct row values and 2 distinct col values
+		if (rows.size !== 2 || cols.size !== 2) return false;
+		
+		// Check if coordinates are symmetric (negative and positive values)
+		const rowValues = Array.from(rows).sort((a, b) => a - b);
+		const colValues = Array.from(cols).sort((a, b) => a - b);
+		
+		// For quadrant layout, we expect symmetric distribution around origin
+		// e.g., row: [-1, 1], col: [-1, 1]
+		const isSymmetric = 
+			rowValues[0] < 0 && rowValues[1] > 0 &&
+			colValues[0] < 0 && colValues[1] > 0 &&
+			Math.abs(rowValues[0]) === Math.abs(rowValues[1]) &&
+			Math.abs(colValues[0]) === Math.abs(colValues[1]);
+		
+		return isSymmetric;
+	}
+
+	/**
+	 * Calculate node position within a group, with special handling for quadrant layouts
+	 */
+	private calculateNodePositionInGroup(
+		nodeXML: NodeXML,
+		groupPixelPos: { x: number; y: number },
+		groupPadding: number,
+		isQuadrantLayout: boolean
+	): { x: number; y: number } {
+		const nodeWidth = this.settings.gridNodeWidth || DEFAULT_GRID_OPTIONS.nodeWidth;
+		const nodeHeight = this.settings.gridNodeHeight || DEFAULT_GRID_OPTIONS.nodeHeight;
+		const baseGap = this.settings.gridGap || DEFAULT_GRID_OPTIONS.gap;
+		
+		// For quadrant layouts, use larger spacing and center-based coordinates
+		if (isQuadrantLayout) {
+			// Use larger gap for quadrant layouts (2x normal gap for better visual separation)
+			const quadrantGap = baseGap * 2;
+			
+			// For quadrant layout, we want to center the 2x2 grid in the group
+			// Calculate the total width/height needed for 2 nodes with gap
+			const totalWidth = nodeWidth * 2 + quadrantGap;
+			const totalHeight = nodeHeight * 2 + quadrantGap;
+			
+			// Start position: group top-left + padding, then offset to center the quadrant grid
+			// The center of the 2x2 grid should be at: groupPadding + totalWidth/2
+			const gridCenterX = groupPixelPos.x + groupPadding + totalWidth / 2;
+			const gridCenterY = groupPixelPos.y + groupPadding + totalHeight / 2;
+			
+			// Calculate position relative to grid center
+			const row = nodeXML.row || 0;
+			const col = nodeXML.col || 0;
+			
+			// Position node relative to center
+			// For row=-1, place above center; for row=1, place below center
+			// For col=-1, place left of center; for col=1, place right of center
+			const x = gridCenterX + col * (nodeWidth + quadrantGap) / 2 - nodeWidth / 2;
+			const y = gridCenterY + row * (nodeHeight + quadrantGap) / 2 - nodeHeight / 2;
+			
+			return { x, y };
+		} else {
+			// Normal layout: use standard grid-to-pixel conversion
+			return gridToPixel(
+				{ row: nodeXML.row || 0, col: nodeXML.col || 0 },
+				{
+					x: groupPixelPos.x + groupPadding,
+					y: groupPixelPos.y + groupPadding,
+					width: 0,
+					height: 0
+				} as any,
+				{
+					nodeWidth,
+					nodeHeight,
+					gap: baseGap,
+				}
+			);
 		}
 	}
 }

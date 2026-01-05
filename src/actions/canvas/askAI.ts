@@ -8,7 +8,7 @@ export const addAskAIButton = async (
 	menuEl: HTMLElement
 ) => {
 	const buttonEl_AskAI = createEl("button", "clickable-icon gpt-menu-item");
-	setTooltip(buttonEl_AskAI, "Ask AI", {
+	setTooltip(buttonEl_AskAI, "AI 问答", {
 		placement: "top",
 	});
 	setIcon(buttonEl_AskAI, "lucide-sparkles");

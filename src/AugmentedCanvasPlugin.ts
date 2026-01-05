@@ -114,7 +114,7 @@ export default class AugmentedCanvasPlugin extends Plugin {
 			this.app.workspace.on("canvas:node-menu", (menu) => {
 				menu.addSeparator();
 				menu.addItem((item) => {
-					item.setTitle("Create flashcards")
+					item.setTitle("创建闪卡")
 						.setIcon("lucide-wallet-cards")
 						.onClick(() => {
 							createFlashcards(this.app, settings);
@@ -132,7 +132,7 @@ export default class AugmentedCanvasPlugin extends Plugin {
 
 		this.addCommand({
 			id: "run-prompt-folder",
-			name: "Run a system prompt on a folder",
+			name: "对文件夹运行系统提示词",
 			checkCallback: (checking: boolean) => {
 				if (checking) {
 					if (!getActiveCanvas(app)) return false;
@@ -144,7 +144,7 @@ export default class AugmentedCanvasPlugin extends Plugin {
 					this.settings,
 					(systemPrompt: SystemPrompt) => {
 						new Notice(
-							`Selected system prompt ${systemPrompt.act}`
+							`已选择系统提示词: ${systemPrompt.act}`
 						);
 
 						new FolderSuggestModal(app, (folder: TFolder) => {
@@ -162,7 +162,7 @@ export default class AugmentedCanvasPlugin extends Plugin {
 
 		this.addCommand({
 			id: "insert-system-prompt",
-			name: "Insert system prompt",
+			name: "插入系统提示词",
 			checkCallback: (checking: boolean) => {
 				if (checking) {
 					if (!getActiveCanvas(app)) return false;
@@ -180,7 +180,7 @@ export default class AugmentedCanvasPlugin extends Plugin {
 
 		this.addCommand({
 			id: "insert-relevant-questions",
-			name: "Insert relevant questions",
+			name: "插入相关问题",
 			checkCallback: (checking: boolean) => {
 				if (checking) {
 					if (!getActiveCanvas(app)) return false;

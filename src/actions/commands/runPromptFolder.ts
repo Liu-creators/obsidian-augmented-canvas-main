@@ -26,7 +26,7 @@ export const runPromptFolder = async (
 	const NODE_WIDTH = 800;
 	const NODE_HEIGHT = 300;
 	// 初始显示的占位文案
-	const text = `\`\`\`Calling AI (${settings.apiModel})...\`\`\``;
+	const text = `\`\`\`正在呼叫 AI (${settings.apiModel})...\`\`\``;
 	const created = createNode(canvas, {
 		pos: {
 			// @ts-expect-error

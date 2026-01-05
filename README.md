@@ -1,7 +1,7 @@
 # Obsidian 增强型画布
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.16-green.svg)](manifest.json)
+[![Version](https://img.shields.io/badge/version-0.1.20-green.svg)](manifest.json)
 
 一款为 [Obsidian](https://obsidian.md) 设计的插件，通过 DeepSeek AI 功能增强 Canvas (画布) 的使用体验。
 
@@ -101,7 +101,7 @@ AI 会根据问题生成一个新卡片，并将问题显示在连接两个卡�
 
 **示例**：选择一个包含"机器学习"的节点，点击"Generate Group with AI"，输入"创建学习指南"，AI 会自动生成包含"基础概念"、"核心算法"、"实践应用"、"学习路径"等多个节点的 Group。
 
-详细使用文档请参阅 [docs/GROUP_GENERATION.md](docs/GROUP_GENERATION.md)。
+详细使用文档请参阅 [docs/QUICK_START_GROUP_GENERATION.md](docs/QUICK_START_GROUP_GENERATION.md)。
 
 #### 4. AI 生成相关问题
 

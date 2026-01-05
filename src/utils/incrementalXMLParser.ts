@@ -51,25 +51,29 @@ export class IncrementalXMLParser {
 	public detectCompleteNodes(): NodeXML[] {
 		const nodes: NodeXML[] = [];
 		
-		// Detect flat nodes (not inside groups)
-		// Use a regex that matches <node...>...</node> but not inside <group>
+		// Detect all nodes, including those inside groups
 		const detected = this.detectCompleteElements(
 			/<node\s+[^>]*>[\s\S]*?<\/node>/g
 		);
 		
 		for (const elem of detected) {
-			// Check if this node is inside a group by looking backwards
-			const beforeNode = this.buffer.substring(0, elem.start);
-			const openGroupCount = (beforeNode.match(/<group\s+[^>]*>/g) || []).length;
-			const closeGroupCount = (beforeNode.match(/<\/group>/g) || []).length;
-			
-			// If we're inside a group, skip this node (it will be parsed with the group)
-			if (openGroupCount > closeGroupCount) {
-				continue;
-			}
-			
 			try {
 				const node = this.parseNodeElement(elem.xml);
+				
+				// Check if we're inside a group to set groupId
+				const beforeNode = this.buffer.substring(0, elem.start);
+				const openGroupMatch = beforeNode.match(/<group\s+([^>]+)>/g);
+				const openGroupCount = (openGroupMatch || []).length;
+				const closeGroupCount = (beforeNode.match(/<\/group>/g) || []).length;
+
+				if (openGroupCount > closeGroupCount) {
+					const lastOpenGroup = openGroupMatch![openGroupMatch!.length - 1];
+					const groupIdMatch = lastOpenGroup.match(/id="([^"]+)"/);
+					if (groupIdMatch) {
+						node.groupId = groupIdMatch[1];
+					}
+				}
+
 				nodes.push(node);
 				
 				// Mark as processed
@@ -78,6 +82,83 @@ export class IncrementalXMLParser {
 				}
 			} catch (error) {
 				console.warn("[IncrementalXMLParser] Failed to parse node:", error);
+			}
+		}
+		
+		return nodes;
+	}
+
+	/**
+	 * Detect and extract incomplete <node> elements (currently being streamed)
+	 * Returns partial NodeXML objects without updating processedLength
+	 */
+	public detectIncompleteNodes(): NodeXML[] {
+		const nodes: NodeXML[] = [];
+		const unprocessed = this.getUnprocessedContent();
+		
+		// Match <node id="..." ...>
+		const nodeStartRegex = /<node\s+([^>]+)>/g;
+		let match: RegExpExecArray | null;
+		
+		while ((match = nodeStartRegex.exec(unprocessed)) !== null) {
+			const tagContent = match[1];
+			const startPos = match.index;
+			const afterTag = unprocessed.substring(startPos + match[0].length);
+			
+			// If it's already complete in the unprocessed buffer, detectCompleteNodes will handle it
+			// unless we are specifically looking for real-time updates for it
+			const hasEndTag = afterTag.includes("</node>");
+			
+			try {
+				// Extract attributes from the opening tag
+				const idMatch = tagContent.match(/id="([^"]+)"/);
+				if (!idMatch) continue;
+				const id = idMatch[1];
+				
+				const typeMatch = tagContent.match(/type="([^"]+)"/);
+				const type = this.parseNodeType(typeMatch ? typeMatch[1] : "default");
+				
+				const titleMatch = tagContent.match(/title="([^"]+)"/);
+				const title = titleMatch ? titleMatch[1] : undefined;
+				
+				const rowMatch = tagContent.match(/row="([^"]+)"/);
+				const colMatch = tagContent.match(/col="([^"]+)"/);
+				const row = rowMatch ? parseInt(rowMatch[1], 10) : 0;
+				const col = colMatch ? parseInt(colMatch[1], 10) : 0;
+				
+				// Content is everything from the end of the opening tag to the end of unprocessed
+				// or until the next tag starts (opening or closing)
+				const nextTagStart = afterTag.search(/<(node|edge|group|\/node|\/group)/);
+				const content = nextTagStart === -1 
+					? afterTag.trim() 
+					: afterTag.substring(0, nextTagStart).trim();
+				
+				const node: NodeXML = {
+					id,
+					type,
+					title,
+					row,
+					col,
+					content,
+				};
+
+				// Check if this node is inside a group
+				const beforeNode = this.buffer.substring(0, this.processedLength + startPos);
+				const openGroupMatch = beforeNode.match(/<group\s+([^>]+)>/g);
+				const openGroupCount = (openGroupMatch || []).length;
+				const closeGroupCount = (beforeNode.match(/<\/group>/g) || []).length;
+
+				if (openGroupCount > closeGroupCount) {
+					const lastOpenGroup = openGroupMatch![openGroupMatch!.length - 1];
+					const groupIdMatch = lastOpenGroup.match(/id="([^"]+)"/);
+					if (groupIdMatch) {
+						node.groupId = groupIdMatch[1];
+					}
+				}
+				
+				nodes.push(node);
+			} catch (error) {
+				// Silently ignore partial parse errors
 			}
 		}
 		
@@ -106,6 +187,53 @@ export class IncrementalXMLParser {
 				}
 			} catch (error) {
 				console.warn("[IncrementalXMLParser] Failed to parse group:", error);
+			}
+		}
+		
+		return groups;
+	}
+
+	/**
+	 * Detect and extract incomplete <group> elements
+	 */
+	public detectIncompleteGroups(): GroupXML[] {
+		const groups: GroupXML[] = [];
+		const unprocessed = this.getUnprocessedContent();
+		
+		const groupStartRegex = /<group\s+([^>]+)>/g;
+		let match: RegExpExecArray | null;
+		
+		while ((match = groupStartRegex.exec(unprocessed)) !== null) {
+			const tagContent = match[1];
+			const startPos = match.index;
+			const afterTag = unprocessed.substring(startPos + match[0].length);
+			
+			if (afterTag.includes("</group>")) {
+				continue;
+			}
+			
+			try {
+				const idMatch = tagContent.match(/id="([^"]+)"/);
+				if (!idMatch) continue;
+				const id = idMatch[1];
+				
+				const titleMatch = tagContent.match(/title="([^"]+)"/);
+				const title = titleMatch ? titleMatch[1] : "Untitled Group";
+				
+				const rowMatch = tagContent.match(/row="([^"]+)"/);
+				const colMatch = tagContent.match(/col="([^"]+)"/);
+				const row = rowMatch ? parseInt(rowMatch[1], 10) : 0;
+				const col = colMatch ? parseInt(colMatch[1], 10) : 0;
+				
+				groups.push({
+					id,
+					title,
+					row,
+					col,
+					nodes: [], // Partial groups don't have nodes yet
+				});
+			} catch (error) {
+				// Ignore
 			}
 		}
 		

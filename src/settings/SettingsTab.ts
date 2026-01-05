@@ -366,7 +366,15 @@ export class SettingsTab extends PluginSettingTab {
 			.setName("方向优先级")
 			.setDesc(
 				"设置智能布局的方向优先顺序。当前顺序：" + 
-				this.plugin.settings.layoutPreferences.directionPriority.join(" → ")
+				this.plugin.settings.layoutPreferences.directionPriority.map(d => {
+					const dict: Record<string, string> = {
+						"right": "右",
+						"down": "下",
+						"left": "左",
+						"up": "上"
+					};
+					return dict[d] || d;
+				}).join(" → ")
 			)
 			.addButton((button) => {
 				button
@@ -382,21 +390,6 @@ export class SettingsTab extends PluginSettingTab {
 						new Notice("方向优先级已更新");
 					});
 			});
-
-		// new Setting(containerEl)
-		// 	.setName("API URL")
-		// 	.setDesc(
-		// 		"The chat completions URL to use. You probably won't need to change this."
-		// 	)
-		// 	.addText((text) => {
-		// 		text.inputEl.style.width = "300px";
-		// 		text.setPlaceholder("API URL")
-		// 			.setValue(this.plugin.settings.apiUrl)
-		// 			.onChange(async (value) => {
-		// 				this.plugin.settings.apiUrl = value;
-		// 				await this.plugin.saveSettings();
-		// 			});
-		// 	});
 
 		new Setting(containerEl)
 			.setName("调试输出")

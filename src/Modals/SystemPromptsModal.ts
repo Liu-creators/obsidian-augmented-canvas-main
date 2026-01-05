@@ -29,6 +29,7 @@ export default class QuickActionModal extends SuggestModal<SystemPrompt> {
 		super(app);
 		this.settings = settings;
 		this.onChoose = onChoose;
+		this.setPlaceholder("搜索系统提示词...");
 
 		const fuse = new Fuse(
 			[...this.settings.userSystemPrompts, ...this.settings.systemPrompts]

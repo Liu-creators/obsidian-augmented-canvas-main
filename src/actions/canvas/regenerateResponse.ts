@@ -27,7 +27,7 @@ export const addRegenerateResponse = async (
 	menuEl: HTMLElement
 ) => {
 	const buttonEl_AskAI = createEl("button", "clickable-icon gpt-menu-item");
-	setTooltip(buttonEl_AskAI, "Regenerate response", {
+	setTooltip(buttonEl_AskAI, "重新生成回复", {
 		placement: "top",
 	});
 	setIcon(buttonEl_AskAI, "lucide-rotate-cw");
