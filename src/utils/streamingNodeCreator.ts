@@ -19,6 +19,27 @@ import {
 } from "./spatialAnalyzer";
 
 /**
+ * Anchor state for pre-created groups
+ * Used to maintain stable positioning during streaming
+ */
+export interface AnchorState {
+	/** Original X position of the pre-created group */
+	anchorX: number;
+	
+	/** Original Y position of the pre-created group */
+	anchorY: number;
+	
+	/** Whether the anchor has been locked (set when group is created) */
+	anchorLocked: boolean;
+	
+	/** Minimum row value seen (for handling negative coordinates) */
+	minRowSeen: number;
+	
+	/** Minimum col value seen (for handling negative coordinates) */
+	minColSeen: number;
+}
+
+/**
  * Sleep utility for throttling
  */
 function sleep(ms: number): Promise<void> {
@@ -59,6 +80,9 @@ export class StreamingNodeCreator {
 	private preCreatedGroupMainEdgeId: string | null = null; // Main edge ID for pre-created group
 	private preCreatedGroupUserQuestion: string = ""; // User question for pre-created group
 	
+	// Anchor state for pre-created groups (prevents layout jumping)
+	private anchorState: AnchorState | null = null;
+	
 	constructor(
 		canvas: Canvas,
 		sourceNode: CanvasNode,
@@ -87,6 +111,7 @@ export class StreamingNodeCreator {
 	
 	/**
 	 * Set pre-created group information (called when group is created immediately)
+	 * Now captures and locks the anchor position to prevent layout jumping
 	 */
 	public setPreCreatedGroup(
 		group: CanvasNode,
@@ -105,11 +130,82 @@ export class StreamingNodeCreator {
 		
 		// Mark as first node/group for edge redirection (no need to redirect since edge already exists)
 		this.firstNodeOrGroup = group;
+		
+		// Lock anchor position to prevent layout jumping during streaming
+		this.anchorState = {
+			anchorX: group.x,
+			anchorY: group.y,
+			anchorLocked: true,
+			minRowSeen: 0,
+			minColSeen: 0,
+		};
+		
+		console.log(`[StreamingNodeCreator] Anchor locked at (${group.x}, ${group.y}) for group ${semanticId}`);
 	}
 	
 	/**
+	 * Calculate node position anchored to pre-created group
+	 * Uses the anchor position and grid coordinates to calculate absolute pixel position
+	 * 
+	 * @param nodeXML - Node data with row/col grid coordinates
+	 * @returns Pixel coordinates anchored to group position
+	 */
+	private calculateNodePositionInPreCreatedGroup(
+		nodeXML: NodeXML
+	): { x: number; y: number } {
+		if (!this.anchorState || !this.preCreatedGroup) {
+			// Fallback to existing behavior if no anchor
+			console.warn('[StreamingNodeCreator] No anchor state, falling back to spatial analysis');
+			return this.calculatePositionFromRelations(nodeXML.id);
+		}
+		
+		const padding = this.settings.groupPadding || 60;
+		const nodeWidth = this.settings.gridNodeWidth || 360;
+		const nodeHeight = this.settings.gridNodeHeight || 200;
+		const gap = this.settings.gridGap || 40;
+		
+		const cellWidth = nodeWidth + gap;
+		const cellHeight = nodeHeight + gap;
+		
+		// Clamp coordinates to reasonable bounds
+		const MAX_GRID_COORD = 100;
+		const row = Math.max(-MAX_GRID_COORD, Math.min(MAX_GRID_COORD, nodeXML.row || 0));
+		const col = Math.max(-MAX_GRID_COORD, Math.min(MAX_GRID_COORD, nodeXML.col || 0));
+		
+		// Log warning for out-of-range values
+		if (nodeXML.row !== undefined && (nodeXML.row < -MAX_GRID_COORD || nodeXML.row > MAX_GRID_COORD)) {
+			console.warn(`[StreamingNodeCreator] Row value ${nodeXML.row} clamped to ${row}`);
+		}
+		if (nodeXML.col !== undefined && (nodeXML.col < -MAX_GRID_COORD || nodeXML.col > MAX_GRID_COORD)) {
+			console.warn(`[StreamingNodeCreator] Col value ${nodeXML.col} clamped to ${col}`);
+		}
+		
+		// Track minimum coordinates for potential anchor adjustment
+		this.anchorState.minRowSeen = Math.min(this.anchorState.minRowSeen, row);
+		this.anchorState.minColSeen = Math.min(this.anchorState.minColSeen, col);
+		
+		// Calculate position relative to anchor
+		// Normalize coordinates: if minRow is -1, row 0 becomes row 1 in calculation
+		const normalizedRow = row - this.anchorState.minRowSeen;
+		const normalizedCol = col - this.anchorState.minColSeen;
+		
+		const x = this.anchorState.anchorX + padding + (normalizedCol * cellWidth);
+		const y = this.anchorState.anchorY + padding + (normalizedRow * cellHeight);
+		
+		console.log(`[StreamingNodeCreator] Calculated position for node ${nodeXML.id}: (${x}, ${y}) from grid (${row}, ${col}), normalized (${normalizedRow}, ${normalizedCol})`);
+		
+		return { x, y };
+	}
+
+	/**
 	 * Create a node from XML format
 	 * Now uses dependency-aware creation: creates related nodes first, then edges, then the node itself
+	 * 
+	 * Detects pre-created group context and routes to anchor-based positioning when:
+	 * - nodeXML.groupId matches preCreatedGroupSemanticId
+	 * - anchorState is available
+	 * 
+	 * Requirements: 2.1 - Relative Node Positioning Within Group
 	 */
 	async createNodeFromXML(nodeXML: NodeXML): Promise<CanvasNode | null> {
 		// Store the node in pending nodes if not already created
@@ -117,19 +213,53 @@ export class StreamingNodeCreator {
 			this.pendingNodes.set(nodeXML.id, nodeXML);
 		}
 		
-		// Use dependency-aware creation
+		// Detect pre-created group context for anchor-based positioning
+		const isInPreCreatedGroup = this.isNodeInPreCreatedGroup(nodeXML);
+		if (isInPreCreatedGroup) {
+			console.log(`[StreamingNodeCreator] Node ${nodeXML.id} detected in pre-created group context, will use anchor-based positioning`);
+		}
+		
+		// Use dependency-aware creation (which will route to anchor-based positioning if in pre-created group)
 		return await this.createNodeWithDependencies(nodeXML);
+	}
+	
+	/**
+	 * Check if a node belongs to the pre-created group context
+	 * Used to determine whether to use anchor-based positioning
+	 * 
+	 * @param nodeXML - Node data with optional groupId
+	 * @returns true if node should use anchor-based positioning
+	 */
+	private isNodeInPreCreatedGroup(nodeXML: NodeXML): boolean {
+		return !!(
+			nodeXML.groupId && 
+			this.preCreatedGroup && 
+			this.preCreatedGroupSemanticId === nodeXML.groupId &&
+			this.anchorState
+		);
 	}
 
 	/**
 	 * Update an existing node with partial content during streaming
+	 * 
+	 * IMPORTANT: This method preserves node position during content updates.
+	 * Only text and height are updated, NOT x/y coordinates.
+	 * This ensures node position stability under streaming (Property 3).
+	 * 
+	 * Requirements: 5.2 - Position preservation during content updates
 	 */
 	async updatePartialNode(nodeXML: NodeXML): Promise<void> {
 		const node = this.createdNodeMap.get(nodeXML.id);
 		
 		if (node) {
 			// If node exists, update its text and height if it changed
+			// CRITICAL: Do NOT update x/y coordinates - position must remain stable
 			if (node.text !== nodeXML.content) {
+				// Capture current position before any updates
+				const currentX = node.x;
+				const currentY = node.y;
+				
+				// Update text content only
 				node.setText(nodeXML.content);
 				
 				// Recalculate height based on new content to ensure group fits
@@ -139,13 +269,25 @@ export class StreamingNodeCreator {
 				);
 				
 				if (Math.abs(node.height - newHeight) > 1) {
-					node.setData({ height: newHeight });
+					// Update height only, explicitly preserve x/y position
+					node.setData({ 
+						height: newHeight,
+						// Explicitly set x/y to current values to prevent any drift
+						x: currentX,
+						y: currentY
+					});
 				}
 				
 				// If node is in a group, update group bounds
+				// Note: updateGroupBounds will expand the group if needed but won't move this node
 				const groupId = this.nodeToGroup.get(nodeXML.id);
 				if (groupId) {
 					await this.updateGroupBounds(groupId);
+				}
+				
+				// Verify position was preserved (debug logging)
+				if (Math.abs(node.x - currentX) > 0.1 || Math.abs(node.y - currentY) > 0.1) {
+					console.warn(`[StreamingNodeCreator] Position drift detected for node ${nodeXML.id}: was (${currentX}, ${currentY}), now (${node.x}, ${node.y})`);
 				}
 			}
 		} else {
@@ -355,8 +497,21 @@ export class StreamingNodeCreator {
 		}
 		
 		try {
-			// Use relationship-driven position calculation instead of fixed grid
-			const pixelPos = this.calculatePositionFromRelations(nodeXML.id);
+			// Determine position calculation method based on group membership
+			let pixelPos: { x: number; y: number };
+			
+			// Check if node belongs to pre-created group and should use anchor-based positioning
+			// Uses the helper method for consistent detection
+			const belongsToPreCreatedGroup = this.isNodeInPreCreatedGroup(nodeXML);
+			
+			if (belongsToPreCreatedGroup) {
+				// Use anchor-based positioning for nodes in pre-created groups
+				pixelPos = this.calculateNodePositionInPreCreatedGroup(nodeXML);
+				console.log(`[StreamingNodeCreator] Using anchor-based positioning for node ${nodeXML.id} in pre-created group`);
+			} else {
+				// Fallback to relationship-driven position calculation for non-group nodes
+				pixelPos = this.calculatePositionFromRelations(nodeXML.id);
+			}
 			
 			// Get color based on type
 			const color = getColorForType(nodeXML.type);
@@ -626,6 +781,11 @@ export class StreamingNodeCreator {
 	/**
 	 * Update group bounds to fit all member nodes
 	 * This ensures the group container always contains its children as they grow
+	 * 
+	 * For pre-created groups with anchor state:
+	 * - Only modify width/height when expanding for positive coordinates
+	 * - When negative coordinates appear, shift anchor and reposition all nodes
+	 * - Maintain 2-pixel tolerance for minor adjustments
 	 */
 	private async updateGroupBounds(groupId: string): Promise<void> {
 		const groupNode = this.createdNodeMap.get(groupId);
@@ -658,6 +818,29 @@ export class StreamingNodeCreator {
 
 		const padding = this.settings.groupPadding || 60;
 		
+		// Check if this is a pre-created group with anchor state
+		const isPreCreatedGroup = this.preCreatedGroup && 
+			this.preCreatedGroupSemanticId === groupId &&
+			this.anchorState;
+		
+		if (isPreCreatedGroup && this.anchorState) {
+			// Use anchor-preserving bounds update for pre-created groups
+			await this.updateGroupBoundsPreservingAnchor(groupId, memberNodes, padding);
+		} else {
+			// Use standard bounds calculation for non-anchored groups
+			await this.updateGroupBoundsStandard(groupNode, memberNodes, padding);
+		}
+	}
+	
+	/**
+	 * Standard group bounds update (for non-anchored groups)
+	 * Simply calculates bounds to fit all member nodes
+	 */
+	private async updateGroupBoundsStandard(
+		groupNode: CanvasNode,
+		memberNodes: CanvasNode[],
+		padding: number
+	): Promise<void> {
 		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
 		memberNodes.forEach(node => {
@@ -688,6 +871,186 @@ export class StreamingNodeCreator {
 			
 			await this.canvas.requestFrame();
 		}
+	}
+	
+	/**
+	 * Update group bounds while preserving anchor position
+	 * 
+	 * This method implements anchor-based bounds expansion:
+	 * - For positive coordinates: only expand width/height, keep anchor (x, y) fixed
+	 * - For negative coordinates: shift anchor and reposition all existing nodes
+	 * - Maintains 2-pixel tolerance for minor adjustments
+	 * 
+	 * Requirements: 3.1, 3.2, 3.3
+	 */
+	private async updateGroupBoundsPreservingAnchor(
+		groupId: string,
+		memberNodes: CanvasNode[],
+		padding: number
+	): Promise<void> {
+		if (!this.anchorState || !this.preCreatedGroup) {
+			console.warn('[StreamingNodeCreator] updateGroupBoundsPreservingAnchor called without anchor state');
+			return;
+		}
+		
+		const groupNode = this.preCreatedGroup;
+		
+		// Calculate the bounding box of all member nodes
+		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+		memberNodes.forEach(node => {
+			minX = Math.min(minX, node.x);
+			minY = Math.min(minY, node.y);
+			maxX = Math.max(maxX, node.x + node.width);
+			maxY = Math.max(maxY, node.y + node.height);
+		});
+		
+		// Calculate required bounds with padding
+		const requiredX = minX - padding;
+		const requiredY = minY - padding;
+		const requiredWidth = maxX - minX + padding * 2;
+		const requiredHeight = maxY - minY + padding * 2;
+		
+		// Check if nodes extend beyond the anchor point (negative coordinate scenario)
+		const needsAnchorShiftX = requiredX < this.anchorState.anchorX - 2; // 2-pixel tolerance
+		const needsAnchorShiftY = requiredY < this.anchorState.anchorY - 2; // 2-pixel tolerance
+		
+		if (needsAnchorShiftX || needsAnchorShiftY) {
+			// Negative coordinates detected - need to shift anchor and reposition nodes
+			await this.shiftAnchorAndRepositionNodes(
+				groupId,
+				memberNodes,
+				requiredX,
+				requiredY,
+				requiredWidth,
+				requiredHeight,
+				padding
+			);
+		} else {
+			// Positive coordinates only - just expand width/height, preserve anchor position
+			const newWidth = Math.max(
+				groupNode.width,
+				maxX - this.anchorState.anchorX + padding
+			);
+			const newHeight = Math.max(
+				groupNode.height,
+				maxY - this.anchorState.anchorY + padding
+			);
+			
+			// Only update if dimensions changed significantly (2-pixel tolerance)
+			const widthChanged = Math.abs(groupNode.width - newWidth) > 2;
+			const heightChanged = Math.abs(groupNode.height - newHeight) > 2;
+			
+			if (widthChanged || heightChanged) {
+				// Keep anchor position fixed, only update dimensions
+				groupNode.setData({
+					x: this.anchorState.anchorX,
+					y: this.anchorState.anchorY,
+					width: newWidth,
+					height: newHeight
+				});
+				
+				await this.canvas.requestFrame();
+				
+				console.log(`[StreamingNodeCreator] Expanded group bounds: width=${newWidth}, height=${newHeight} (anchor preserved at ${this.anchorState.anchorX}, ${this.anchorState.anchorY})`);
+			}
+		}
+	}
+	
+	/**
+	 * Shift anchor position and reposition all existing nodes
+	 * 
+	 * This is called when negative grid coordinates cause nodes to extend
+	 * beyond the original anchor point. We need to:
+	 * 1. Calculate the new anchor position
+	 * 2. Calculate the shift delta
+	 * 3. Reposition all existing nodes by the delta to maintain relative positions
+	 * 4. Update the group bounds
+	 * 
+	 * Requirements: 3.3 (relative position preservation)
+	 */
+	private async shiftAnchorAndRepositionNodes(
+		groupId: string,
+		memberNodes: CanvasNode[],
+		newX: number,
+		newY: number,
+		newWidth: number,
+		newHeight: number,
+		padding: number
+	): Promise<void> {
+		if (!this.anchorState || !this.preCreatedGroup) return;
+		
+		const groupNode = this.preCreatedGroup;
+		
+		// Calculate how much the anchor needs to shift
+		const deltaX = this.anchorState.anchorX - newX;
+		const deltaY = this.anchorState.anchorY - newY;
+		
+		console.log(`[StreamingNodeCreator] Shifting anchor by (${deltaX}, ${deltaY}) due to negative coordinates`);
+		
+		// Only reposition if there's a significant shift (> 2 pixels)
+		if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+			// Reposition all existing nodes to maintain relative positions
+			// When anchor shifts left/up, nodes need to shift right/down by the same amount
+			for (const node of memberNodes) {
+				const currentX = node.x;
+				const currentY = node.y;
+				const newNodeX = currentX + deltaX;
+				const newNodeY = currentY + deltaY;
+				
+				node.setData({
+					x: newNodeX,
+					y: newNodeY
+				});
+				
+				// Update our position tracking
+				const nodeSemanticId = this.findSemanticIdForNode(node);
+				if (nodeSemanticId) {
+					this.nodePositions.set(nodeSemanticId, { x: newNodeX, y: newNodeY });
+				}
+			}
+		}
+		
+		// Update anchor state to new position
+		this.anchorState.anchorX = newX;
+		this.anchorState.anchorY = newY;
+		
+		// Recalculate bounds after repositioning
+		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+		memberNodes.forEach(node => {
+			minX = Math.min(minX, node.x);
+			minY = Math.min(minY, node.y);
+			maxX = Math.max(maxX, node.x + node.width);
+			maxY = Math.max(maxY, node.y + node.height);
+		});
+		
+		const finalWidth = maxX - minX + padding * 2;
+		const finalHeight = maxY - minY + padding * 2;
+		
+		// Update group bounds
+		groupNode.setData({
+			x: newX,
+			y: newY,
+			width: finalWidth,
+			height: finalHeight
+		});
+		
+		await this.canvas.requestFrame();
+		
+		console.log(`[StreamingNodeCreator] Anchor shifted to (${newX}, ${newY}), group bounds: ${finalWidth}x${finalHeight}`);
+	}
+	
+	/**
+	 * Find the semantic ID for a canvas node
+	 * Used when repositioning nodes to update position tracking
+	 */
+	private findSemanticIdForNode(targetNode: CanvasNode): string | null {
+		for (const [semanticId, node] of this.createdNodeMap.entries()) {
+			if (node.id === targetNode.id) {
+				return semanticId;
+			}
+		}
+		return null;
 	}
 	
 	/**
