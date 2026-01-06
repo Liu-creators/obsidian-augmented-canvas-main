@@ -47,6 +47,79 @@ export class IncrementalXMLParser {
 	}
 	
 	/**
+	 * Dedent content by removing common leading whitespace from all lines.
+	 * This prevents Markdown from interpreting indented content as code blocks.
+	 * 
+	 * Algorithm:
+	 * 1. If content is empty or has no newlines, return trimmed content
+	 * 2. Split content into lines
+	 * 3. Find minimum indentation across all non-empty lines
+	 * 4. Remove that minimum indentation from each line
+	 * 5. Preserve empty lines as-is
+	 * 
+	 * @param content - Raw content that may have leading indentation
+	 * @returns Content with common leading whitespace removed
+	 */
+	public dedentContent(content: string): string {
+		try {
+			// Handle empty string
+			if (!content) {
+				return "";
+			}
+			
+			const lines = content.split('\n');
+			
+			// Single line: just trim leading whitespace
+			if (lines.length === 1) {
+				return lines[0].trimStart();
+			}
+			
+			// Find minimum indentation across non-empty lines
+			let minIndent = Infinity;
+			for (const line of lines) {
+				// Skip empty lines or lines with only whitespace
+				if (line.trim().length === 0) {
+					continue;
+				}
+				
+				// Count leading whitespace (spaces and tabs)
+				let indent = 0;
+				for (const char of line) {
+					if (char === ' ' || char === '\t') {
+						indent++;
+					} else {
+						break;
+					}
+				}
+				
+				minIndent = Math.min(minIndent, indent);
+			}
+			
+			// If no content lines found or no indentation, return original
+			if (minIndent === Infinity || minIndent === 0) {
+				return content;
+			}
+			
+			// Remove common indentation from each line
+			const dedentedLines = lines.map(line => {
+				// Preserve empty lines (including whitespace-only lines)
+				if (line.trim().length === 0) {
+					return line;
+				}
+				
+				// Remove exactly minIndent characters from the start
+				return line.substring(minIndent);
+			});
+			
+			return dedentedLines.join('\n');
+		} catch (error) {
+			// Fail-safe: return original content on any error
+			console.warn("[IncrementalXMLParser] dedentContent error, returning original:", error);
+			return content;
+		}
+	}
+	
+	/**
 	 * Append new chunk to buffer
 	 */
 	public append(chunk: string): void {
@@ -153,11 +226,14 @@ export class IncrementalXMLParser {
 				// or until the next tag starts (opening or closing)
 				const nextTagStart = afterTag.search(/<(node|edge|group|\/node|\/group)/);
 				const rawContent = nextTagStart === -1 
-					? afterTag.trim() 
-					: afterTag.substring(0, nextTagStart).trim();
+					? afterTag
+					: afterTag.substring(0, nextTagStart);
 				
 				// Apply sanitization to remove trailing partial tags (fixes tag leaking bug)
-				const content = this.sanitizeContent(rawContent);
+				// Then apply dedent to prevent Markdown code block issues
+				// Apply trim after dedent to properly handle multi-line indentation
+				const sanitizedContent = this.sanitizeContent(rawContent);
+				const content = this.dedentContent(sanitizedContent).trim();
 				
 				const node: NodeXML = {
 					id,
@@ -358,8 +434,10 @@ export class IncrementalXMLParser {
 			throw new Error(`Node ${id} has invalid row/col values`);
 		}
 		
-		// Extract content
-		const content = nodeElement.textContent?.trim() || "";
+		// Extract content and apply dedent to prevent Markdown code block issues
+		// Apply dedent first (before trim) to properly handle multi-line indentation
+		const rawContent = nodeElement.textContent || "";
+		const content = this.dedentContent(rawContent).trim();
 		
 		return {
 			id,
@@ -454,7 +532,10 @@ export class IncrementalXMLParser {
 			throw new Error(`Node ${id} has invalid row/col values`);
 		}
 		
-		const content = element.textContent?.trim() || "";
+		// Extract content and apply dedent to prevent Markdown code block issues
+		// Apply dedent first (before trim) to properly handle multi-line indentation
+		const rawContent = element.textContent || "";
+		const content = this.dedentContent(rawContent).trim();
 		
 		return {
 			id,

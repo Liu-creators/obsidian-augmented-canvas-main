@@ -9,6 +9,10 @@ const handleRegenerateResponse = async (
 ) => {
 	const activeNode = getActiveCanvasNodes(app)![0];
 
+	// Extract edge label from the edge object (Requirements 5.1, 5.2)
+	// @ts-expect-error - Edge properties
+	const edgeLabel: string | undefined = activeNode.label;
+
 	const { generateNote } = noteGenerator(
 		app,
 		settings,
@@ -18,7 +22,8 @@ const handleRegenerateResponse = async (
 		activeNode.to.node
 	);
 
-	await generateNote();
+	// Pass edge label to generateNote (Requirements 5.1, 5.2)
+	await generateNote(undefined, edgeLabel);
 };
 
 export const addRegenerateResponse = async (
