@@ -4,9 +4,10 @@
 
 This implementation fixes multiple layout issues:
 1. **Layout jumping bug** (completed) - Anchor-based positioning for pre-created groups
-2. **Vertical node overlap** (NEW) - Dynamic stack layout using actual heights
-3. **Edge label occlusion** (NEW) - Safe zone margins for edge labels
-4. **Column collision** (NEW) - Column width tracking for horizontal spacing
+2. **Vertical node overlap** (completed) - Dynamic stack layout using actual heights
+3. **Edge label occlusion** (completed) - Safe zone margins for edge labels
+4. **Column collision** (completed) - Column width tracking for horizontal spacing
+5. **First node header overflow** (NEW) - Group header height clearance for first row nodes
 
 ## Tasks
 
@@ -276,11 +277,47 @@ This implementation fixes multiple layout issues:
 - [x] 20. Final checkpoint - All critical fixes verified
   - Ensure all tests pass, ask the user if questions arise.
 
+- [x] 21. Fix Group Header Height Clearance (CRITICAL - First Node Overflow Fix)
+  - [x] 21.1 Add GROUP_HEADER_HEIGHT and PADDING constants to LAYOUT_CONSTANTS
+    - Add `GROUP_HEADER_HEIGHT: 40` to LAYOUT_CONSTANTS
+    - Add `PADDING_TOP: 20` to LAYOUT_CONSTANTS
+    - Add `PADDING_BOTTOM: 20` to LAYOUT_CONSTANTS
+    - _Requirements: 12.5_
+
+  - [x] 21.2 Update calculateNodePositionInPreCreatedGroup for first row header clearance
+    - Change first row Y formula from `anchorY + padding + topSafeZone` to `anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone`
+    - Ensure this formula is applied immediately on first token arrival
+    - Apply same margin to all nodes in row 0
+    - _Requirements: 12.1, 12.2, 12.6_
+
+  - [x] 21.3 Update updateGroupBoundsPreservingAnchor for immediate container expansion
+    - Ensure group height expands immediately when first node is created
+    - Formula: `group.height = max(MinHeight, node.relativeY + node.height + PADDING_BOTTOM)`
+    - Prevent group from shrinking during initial streaming phase
+    - _Requirements: 12.3, 12.4_
+
+  - [x] 21.4 Write property test for group header height clearance
+    - **Property 12: Group Header Height Clearance**
+    - Test that first row nodes satisfy: `node.y >= group.y + GROUP_HEADER_HEIGHT + PADDING_TOP`
+    - Test that group height satisfies: `group.height >= (node.y - group.y) + node.height + PADDING_BOTTOM`
+    - **Validates: Requirements 12.1, 12.2, 12.3, 12.4, 12.5, 12.6**
+
+  - [x] 21.5 Write unit tests for first node positioning scenarios
+    - Test first node in single-column layout clears header
+    - Test first node in multi-column layout (all row-0 nodes clear header)
+    - Test group bounds expand immediately on first node creation
+    - Test group doesn't shrink during streaming
+    - _Requirements: 12.1, 12.3, 12.4, 12.6_
+
+- [x] 22. Final checkpoint - Group Header Height Clearance verified
+  - Ensure all tests pass, ask the user if questions arise.
+
 ## Notes
 
 - Tasks 1-8 are completed (original anchor positioning fix)
 - Tasks 9-15 are completed (dynamic layout features)
-- Tasks 16-20 are new (CRITICAL jitter and overlap fixes)
+- Tasks 16-20 are completed (jitter and overlap fixes)
+- Tasks 21-22 are NEW (Group Header Height Clearance fix)
 - All tasks are required (comprehensive testing enabled)
 - Each task references specific requirements for traceability
 - Checkpoints ensure incremental validation

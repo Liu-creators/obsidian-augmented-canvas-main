@@ -98,7 +98,7 @@ export interface NodeActualSize {
 
 /**
  * Layout constants for dynamic positioning
- * Requirements: 6.4, 8.2
+ * Requirements: 6.4, 8.2, 12.5
  */
 export const LAYOUT_CONSTANTS = {
 	/** Minimum vertical gap between nodes in the same column (pixels) */
@@ -109,6 +109,21 @@ export const LAYOUT_CONSTANTS = {
 	
 	/** Safe zone margin for edge labels (pixels) */
 	EDGE_LABEL_SAFE_ZONE: 40,
+	
+	/** Height of group title bar/header area (pixels)
+	 * Requirements: 12.5 - GROUP_HEADER_HEIGHT SHALL be at least 40 pixels
+	 */
+	GROUP_HEADER_HEIGHT: 40,
+	
+	/** Top padding inside the group below the header (pixels)
+	 * Requirements: 12.5
+	 */
+	PADDING_TOP: 80,
+	
+	/** Bottom padding inside the group (pixels)
+	 * Requirements: 12.5
+	 */
+	PADDING_BOTTOM: 20,
 } as const;
 
 /**
@@ -248,12 +263,18 @@ export class StreamingNodeCreator {
 	 * - If edge connects from 'top': add topSafeZone to first row
 	 * - If edge connects from 'left': add leftSafeZone to first column
 	 * 
+	 * CRITICAL (Requirement 12): The first node must clear the group header.
+	 * Formula for first row: y = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone
+	 * This ensures the first node is positioned below the group's title bar from the
+	 * very first render cycle, preventing content from clipping out of the top border.
+	 * 
 	 * @param nodeXML - Node data with row/col grid coordinates
 	 * @returns Pixel coordinates using dynamic stack layout
 	 * 
 	 * Requirements: 6.1 - Dynamic Vertical Stack Layout
 	 * Requirements: 7.1, 7.2, 7.3, 7.4 - Edge Label Safe Zone
 	 * Requirements: 10.3 - Use accumulated heights, not fixed grid coordinates
+	 * Requirements: 12.1, 12.2, 12.6 - Group Header Height Clearance
 	 */
 	private calculateNodePositionInPreCreatedGroup(
 		nodeXML: NodeXML
@@ -264,10 +285,10 @@ export class StreamingNodeCreator {
 			return this.calculatePositionFromRelations(nodeXML.id);
 		}
 		
-		const padding = this.settings.groupPadding || 60;
+		const padding = this.settings.groupPadding || 40;
 		const defaultNodeWidth = this.settings.gridNodeWidth || 360;
 		const defaultNodeHeight = this.settings.gridNodeHeight || 200;
-		const { VERTICAL_GAP, HORIZONTAL_GAP, EDGE_LABEL_SAFE_ZONE } = LAYOUT_CONSTANTS;
+		const { VERTICAL_GAP, HORIZONTAL_GAP, EDGE_LABEL_SAFE_ZONE, GROUP_HEADER_HEIGHT, PADDING_TOP } = LAYOUT_CONSTANTS;
 		
 		// Clamp coordinates to reasonable bounds
 		const MAX_GRID_COORD = 100;
@@ -311,12 +332,19 @@ export class StreamingNodeCreator {
 		}
 		
 		// Calculate Y position using dynamic stack layout
+		// CRITICAL (Requirement 12): First row must clear the group header
+		// Formula for first row: y = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone
+		// This ensures the first node is positioned below the group's title bar
+		// from the very first render cycle (immediately on first token arrival)
 		let y: number;
 		const colTrack = this.columnTracks.get(normalizedCol);
 		
 		if (normalizedRow === 0 || !colTrack || colTrack.nodes.length === 0) {
-			// First node in column: use anchor + padding + topSafeZone (if applicable)
-			y = this.anchorState.anchorY + padding + topSafeZone;
+			// First node in column: MUST clear group header + padding + safe zone
+			// Formula: y = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone
+			// This ensures the first node is positioned below the group's title bar
+			// Requirements: 12.1, 12.2, 12.6
+			y = this.anchorState.anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone;
 		} else {
 			// Find the previous node in this column (node with highest row < normalizedRow)
 			const sortedNodes = [...colTrack.nodes].sort((a, b) => a.row - b.row);
@@ -334,8 +362,9 @@ export class StreamingNodeCreator {
 				// Stack below previous node using dynamic height
 				y = prevNodeInfo.y + prevNodeInfo.actualHeight + VERTICAL_GAP;
 			} else {
-				// No previous node found, use base position with topSafeZone
-				y = this.anchorState.anchorY + padding + topSafeZone;
+				// No previous node found, use base position with header clearance
+				// Requirements: 12.1, 12.2, 12.6
+				y = this.anchorState.anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone;
 			}
 		}
 		
@@ -348,7 +377,7 @@ export class StreamingNodeCreator {
 		// Register this node in column tracking for future dynamic layout
 		this.registerNodeInColumn(nodeXML.id, normalizedCol, normalizedRow, y, initialHeight, defaultNodeWidth);
 		
-		console.log(`[StreamingNodeCreator] Calculated position for node ${nodeXML.id}: (${x}, ${y}) from grid (${row}, ${col}), normalized (${normalizedRow}, ${normalizedCol}), height=${initialHeight}, edgeDirection=${this.anchorState.edgeDirection}, topSafeZone=${topSafeZone}, leftSafeZone=${leftSafeZone}`);
+		console.log(`[StreamingNodeCreator] Calculated position for node ${nodeXML.id}: (${x}, ${y}) from grid (${row}, ${col}), normalized (${normalizedRow}, ${normalizedCol}), height=${initialHeight}, edgeDirection=${this.anchorState.edgeDirection}, topSafeZone=${topSafeZone}, leftSafeZone=${leftSafeZone}, headerClearance=${GROUP_HEADER_HEIGHT + PADDING_TOP}`);
 		
 		return { x, y };
 	}
@@ -1424,8 +1453,14 @@ export class StreamingNodeCreator {
 	 * but the anchor itself remains immutable. This is a design decision to prioritize
 	 * visual stability over perfect layout for edge cases.
 	 * 
+	 * Group Height Expansion (Requirement 12.3, 12.4):
+	 * - Group height expands immediately when first node is created
+	 * - Formula: group.height = max(currentHeight, node.relativeY + node.height + PADDING_BOTTOM)
+	 * - Group container SHALL NOT shrink during the initial streaming phase
+	 * 
 	 * Requirements: 9.1, 9.2, 9.3, 9.4 - Anchor Stabilization During Streaming
 	 * Requirements: 3.1, 3.2, 3.3 - Group Bounds Dynamic Expansion
+	 * Requirements: 12.3, 12.4 - Immediate container expansion, no shrinking
 	 */
 	private async updateGroupBoundsPreservingAnchor(
 		groupId: string,
@@ -1438,6 +1473,7 @@ export class StreamingNodeCreator {
 		}
 		
 		const groupNode = this.preCreatedGroup;
+		const { PADDING_BOTTOM } = LAYOUT_CONSTANTS;
 		
 		// CRITICAL: Capture original anchor position for immutability assertion
 		const originalAnchorX = this.anchorState.anchorX;
@@ -1465,18 +1501,26 @@ export class StreamingNodeCreator {
 		// - No jitter/jumping during streaming (Requirements 9.1, 9.2)
 		// - Group expands to fit content (Requirements 3.1)
 		// - Anchor position is preserved exactly (Requirements 9.3, 9.4)
+		// - Group expands immediately when first node is created (Requirements 12.3)
+		// - Group doesn't shrink during streaming (Requirements 12.4)
 		const newWidth = Math.max(
 			groupNode.width,
 			maxX - originalAnchorX + padding
 		);
+		
+		// Height calculation uses PADDING_BOTTOM for proper bottom margin
+		// Formula: group.height = max(currentHeight, node.relativeY + node.height + PADDING_BOTTOM)
+		// where node.relativeY = node.y - anchorY
+		// This ensures the group immediately expands to wrap the first node (Requirements 12.3)
 		const newHeight = Math.max(
 			groupNode.height,
-			maxY - originalAnchorY + padding
+			maxY - originalAnchorY + PADDING_BOTTOM
 		);
 		
 		// Only update if dimensions changed significantly (2-pixel tolerance)
-		const widthChanged = Math.abs(groupNode.width - newWidth) > 2;
-		const heightChanged = Math.abs(groupNode.height - newHeight) > 2;
+		// CRITICAL: Group can only GROW, never shrink during streaming (Requirements 12.4)
+		const widthChanged = newWidth > groupNode.width + 2;
+		const heightChanged = newHeight > groupNode.height + 2;
 		
 		if (widthChanged || heightChanged) {
 			// CRITICAL: Only update width and height - NEVER x or y

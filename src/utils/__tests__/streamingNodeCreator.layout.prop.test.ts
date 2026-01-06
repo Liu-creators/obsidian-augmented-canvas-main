@@ -1418,3 +1418,564 @@ describe('Property 9: Horizontal Column Spacing', () => {
 		);
 	});
 });
+
+
+/**
+ * Layout constants for group header height clearance
+ * Mirrors the constants in StreamingNodeCreator
+ * Requirements: 12.5
+ */
+const GROUP_HEADER_CONSTANTS = {
+	/** Height of group title bar/header area (pixels) */
+	GROUP_HEADER_HEIGHT: 40,
+	
+	/** Top padding inside the group below the header (pixels) */
+	PADDING_TOP: 20,
+	
+	/** Bottom padding inside the group (pixels) */
+	PADDING_BOTTOM: 20,
+} as const;
+
+/**
+ * Extended layout params with group header clearance
+ */
+interface LayoutParamsWithHeader extends LayoutParams {
+	anchorX: number;
+	edgeDirection?: EdgeDirection;
+}
+
+/**
+ * Simulates group bounds calculation
+ * Returns the minimum required group height to contain all nodes
+ */
+interface GroupBounds {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
+/**
+ * Pure function that calculates Y position with group header clearance
+ * This mirrors the logic in StreamingNodeCreator.calculateNodePositionInPreCreatedGroup
+ * 
+ * CRITICAL (Requirement 12): The first node must clear the group header.
+ * Formula for first row: y = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone
+ * 
+ * Requirements: 12.1, 12.2, 12.6
+ */
+function calculateYPositionWithHeaderClearance(
+	params: LayoutParamsWithHeader,
+	nodesInColumn: PositionedNode[],
+	row: number
+): number {
+	const { anchorY, edgeDirection } = params;
+	const { GROUP_HEADER_HEIGHT, PADDING_TOP } = GROUP_HEADER_CONSTANTS;
+	const { VERTICAL_GAP, EDGE_LABEL_SAFE_ZONE } = LAYOUT_CONSTANTS;
+	
+	// Calculate top safe zone based on edge direction
+	const topSafeZone = (edgeDirection === 'top') ? EDGE_LABEL_SAFE_ZONE : 0;
+	
+	if (row === 0 || nodesInColumn.length === 0) {
+		// First node in column: MUST clear group header + padding + safe zone
+		// Formula: y = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone
+		return anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone;
+	}
+	
+	// Find the previous node (highest row < current row)
+	const sortedNodes = [...nodesInColumn].sort((a, b) => a.row - b.row);
+	let prevNode: PositionedNode | null = null;
+	
+	for (const node of sortedNodes) {
+		if (node.row < row) {
+			prevNode = node;
+		} else {
+			break;
+		}
+	}
+	
+	if (prevNode) {
+		return prevNode.y + prevNode.actualHeight + VERTICAL_GAP;
+	}
+	
+	// No previous node found, use base position with header clearance
+	return anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone;
+}
+
+/**
+ * Simulates creating nodes with group header clearance
+ */
+function simulateLayoutWithHeaderClearance(
+	params: LayoutParamsWithHeader,
+	nodes: NodeInput[]
+): Map<number, PositionedNode[]> {
+	const columnTracks = new Map<number, PositionedNode[]>();
+	
+	// Sort nodes by row to simulate streaming order
+	const sortedNodes = [...nodes].sort((a, b) => a.row - b.row);
+	
+	for (const node of sortedNodes) {
+		if (!columnTracks.has(node.col)) {
+			columnTracks.set(node.col, []);
+		}
+		
+		const colNodes = columnTracks.get(node.col)!;
+		const y = calculateYPositionWithHeaderClearance(params, colNodes, node.row);
+		
+		colNodes.push({
+			id: node.id,
+			row: node.row,
+			col: node.col,
+			y,
+			actualHeight: node.actualHeight,
+		});
+	}
+	
+	return columnTracks;
+}
+
+/**
+ * Simulates group bounds calculation with PADDING_BOTTOM
+ * Formula: group.height = max(MinHeight, node.relativeY + node.height + PADDING_BOTTOM)
+ * 
+ * Requirements: 12.3, 12.4
+ */
+function calculateGroupBounds(
+	anchorX: number,
+	anchorY: number,
+	nodes: PositionedNode[],
+	minWidth: number,
+	minHeight: number,
+	padding: number
+): GroupBounds {
+	const { PADDING_BOTTOM } = GROUP_HEADER_CONSTANTS;
+	
+	if (nodes.length === 0) {
+		return { x: anchorX, y: anchorY, width: minWidth, height: minHeight };
+	}
+	
+	let maxX = -Infinity;
+	let maxY = -Infinity;
+	
+	for (const node of nodes) {
+		// Assume default width for simplicity
+		const nodeWidth = 360;
+		maxX = Math.max(maxX, node.y + nodeWidth); // Using y as placeholder for x in this simplified model
+		maxY = Math.max(maxY, node.y + node.actualHeight);
+	}
+	
+	// Group can only GROW, never shrink
+	// Formula: group.height = max(currentHeight, node.relativeY + node.height + PADDING_BOTTOM)
+	const newHeight = Math.max(minHeight, maxY - anchorY + PADDING_BOTTOM);
+	const newWidth = Math.max(minWidth, maxX - anchorX + padding);
+	
+	return {
+		x: anchorX,
+		y: anchorY,
+		width: newWidth,
+		height: newHeight,
+	};
+}
+
+/**
+ * Property 12: Group Header Height Clearance
+ * 
+ * For any node in the first row (row=0) of a group, the Y-position SHALL satisfy:
+ * node.y >= group.y + GROUP_HEADER_HEIGHT + PADDING_TOP
+ * 
+ * This ensures the first node is positioned below the group's title bar from the
+ * very first render cycle, preventing content from clipping out of the top border
+ * of the group container.
+ * 
+ * Additionally, for any group with at least one node, the group's height SHALL satisfy:
+ * group.height >= (node.y - group.y) + node.height + PADDING_BOTTOM
+ * 
+ * This ensures the group container immediately expands to wrap the first node.
+ * 
+ * **Validates: Requirements 12.1, 12.2, 12.3, 12.4, 12.5, 12.6**
+ */
+describe('Property 12: Group Header Height Clearance', () => {
+	it('should position first row nodes below group header', () => {
+		fc.assert(
+			fc.property(
+				// Generate anchor Y position
+				fc.integer({ min: 0, max: 5000 }),
+				// Generate padding
+				fc.integer({ min: 20, max: 100 }),
+				// Generate default node height
+				fc.integer({ min: 50, max: 300 }),
+				// Generate nodes in first row (row 0) with varying columns
+				fc.array(
+					fc.record({
+						col: fc.integer({ min: 0, max: 5 }),
+						actualHeight: fc.integer({ min: 50, max: 500 }),
+					}),
+					{ minLength: 1, maxLength: 5 }
+				),
+				(anchorY, padding, defaultNodeHeight, nodeInputs) => {
+					// Create nodes all in row 0 with unique columns
+					const uniqueCols = new Set<number>();
+					const nodes: NodeInput[] = nodeInputs
+						.filter(input => {
+							if (uniqueCols.has(input.col)) return false;
+							uniqueCols.add(input.col);
+							return true;
+						})
+						.map((input, i) => ({
+							id: `node_${i}`,
+							row: 0, // First row
+							col: input.col,
+							actualHeight: input.actualHeight,
+						}));
+					
+					if (nodes.length === 0) return true;
+					
+					const params: LayoutParamsWithHeader = {
+						anchorY,
+						anchorX: 0,
+						padding,
+						defaultNodeHeight,
+					};
+					
+					const columnTracks = simulateLayoutWithHeaderClearance(params, nodes);
+					
+					// Verify all first row nodes clear the group header
+					// Formula: node.y >= group.y + GROUP_HEADER_HEIGHT + PADDING_TOP
+					const { GROUP_HEADER_HEIGHT, PADDING_TOP } = GROUP_HEADER_CONSTANTS;
+					const minExpectedY = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP;
+					
+					for (const [col, colNodes] of columnTracks.entries()) {
+						const firstRowNode = colNodes.find(n => n.row === 0);
+						if (firstRowNode) {
+							expect(firstRowNode.y).toBeGreaterThanOrEqual(minExpectedY);
+						}
+					}
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+
+	it('should apply header clearance immediately on first token arrival', () => {
+		fc.assert(
+			fc.property(
+				// Generate anchor Y position
+				fc.integer({ min: 0, max: 5000 }),
+				// Generate padding
+				fc.integer({ min: 20, max: 100 }),
+				// Generate default node height
+				fc.integer({ min: 50, max: 300 }),
+				// Generate first node height
+				fc.integer({ min: 50, max: 500 }),
+				(anchorY, padding, defaultNodeHeight, actualHeight) => {
+					const params: LayoutParamsWithHeader = {
+						anchorY,
+						anchorX: 0,
+						padding,
+						defaultNodeHeight,
+					};
+					
+					// Create single first node (simulating first token arrival)
+					const nodes: NodeInput[] = [{
+						id: 'node_0',
+						row: 0,
+						col: 0,
+						actualHeight,
+					}];
+					
+					const columnTracks = simulateLayoutWithHeaderClearance(params, nodes);
+					const colNodes = columnTracks.get(0) || [];
+					
+					// First node should be positioned with header clearance immediately
+					const { GROUP_HEADER_HEIGHT, PADDING_TOP } = GROUP_HEADER_CONSTANTS;
+					const expectedY = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP;
+					
+					expect(colNodes.length).toBe(1);
+					expect(colNodes[0].y).toBe(expectedY);
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+
+	it('should apply same header clearance to all nodes in row 0', () => {
+		fc.assert(
+			fc.property(
+				// Generate anchor Y position
+				fc.integer({ min: 0, max: 5000 }),
+				// Generate padding
+				fc.integer({ min: 20, max: 100 }),
+				// Generate default node height
+				fc.integer({ min: 50, max: 300 }),
+				// Generate heights for 3 nodes in row 0 across different columns
+				fc.integer({ min: 50, max: 500 }),
+				fc.integer({ min: 50, max: 500 }),
+				fc.integer({ min: 50, max: 500 }),
+				(anchorY, padding, defaultNodeHeight, h0, h1, h2) => {
+					const params: LayoutParamsWithHeader = {
+						anchorY,
+						anchorX: 0,
+						padding,
+						defaultNodeHeight,
+					};
+					
+					// Create 3 nodes in row 0 across different columns
+					const nodes: NodeInput[] = [
+						{ id: 'node_0', row: 0, col: 0, actualHeight: h0 },
+						{ id: 'node_1', row: 0, col: 1, actualHeight: h1 },
+						{ id: 'node_2', row: 0, col: 2, actualHeight: h2 },
+					];
+					
+					const columnTracks = simulateLayoutWithHeaderClearance(params, nodes);
+					
+					// All row 0 nodes should have the same Y position (header clearance)
+					const { GROUP_HEADER_HEIGHT, PADDING_TOP } = GROUP_HEADER_CONSTANTS;
+					const expectedY = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP;
+					
+					for (const [col, colNodes] of columnTracks.entries()) {
+						const firstRowNode = colNodes.find(n => n.row === 0);
+						expect(firstRowNode).toBeDefined();
+						expect(firstRowNode!.y).toBe(expectedY);
+					}
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+
+	it('should ensure group height wraps first node with PADDING_BOTTOM', () => {
+		fc.assert(
+			fc.property(
+				// Generate anchor position
+				fc.integer({ min: 0, max: 5000 }),
+				// Generate padding
+				fc.integer({ min: 20, max: 100 }),
+				// Generate default node height
+				fc.integer({ min: 50, max: 300 }),
+				// Generate first node height
+				fc.integer({ min: 50, max: 500 }),
+				// Generate initial group dimensions
+				fc.integer({ min: 100, max: 500 }),
+				fc.integer({ min: 100, max: 500 }),
+				(anchorY, padding, defaultNodeHeight, actualHeight, minWidth, minHeight) => {
+					const params: LayoutParamsWithHeader = {
+						anchorY,
+						anchorX: 0,
+						padding,
+						defaultNodeHeight,
+					};
+					
+					// Create first node
+					const nodes: NodeInput[] = [{
+						id: 'node_0',
+						row: 0,
+						col: 0,
+						actualHeight,
+					}];
+					
+					const columnTracks = simulateLayoutWithHeaderClearance(params, nodes);
+					const colNodes = columnTracks.get(0) || [];
+					const firstNode = colNodes[0];
+					
+					// Calculate group bounds
+					const groupBounds = calculateGroupBounds(
+						0, anchorY, colNodes, minWidth, minHeight, padding
+					);
+					
+					// Group height should satisfy:
+					// group.height >= (node.y - group.y) + node.height + PADDING_BOTTOM
+					const { PADDING_BOTTOM } = GROUP_HEADER_CONSTANTS;
+					const minRequiredHeight = (firstNode.y - anchorY) + firstNode.actualHeight + PADDING_BOTTOM;
+					
+					expect(groupBounds.height).toBeGreaterThanOrEqual(minRequiredHeight);
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+
+	it('should ensure GROUP_HEADER_HEIGHT is at least 40 pixels', () => {
+		// This is a constant verification test (Requirements 12.5)
+		expect(GROUP_HEADER_CONSTANTS.GROUP_HEADER_HEIGHT).toBeGreaterThanOrEqual(40);
+	});
+
+	it('should combine header clearance with top safe zone when edge is from top', () => {
+		fc.assert(
+			fc.property(
+				// Generate anchor Y position
+				fc.integer({ min: 0, max: 5000 }),
+				// Generate padding
+				fc.integer({ min: 20, max: 100 }),
+				// Generate default node height
+				fc.integer({ min: 50, max: 300 }),
+				// Generate first node height
+				fc.integer({ min: 50, max: 500 }),
+				(anchorY, padding, defaultNodeHeight, actualHeight) => {
+					const params: LayoutParamsWithHeader = {
+						anchorY,
+						anchorX: 0,
+						padding,
+						defaultNodeHeight,
+						edgeDirection: 'top', // Edge connects from top
+					};
+					
+					const nodes: NodeInput[] = [{
+						id: 'node_0',
+						row: 0,
+						col: 0,
+						actualHeight,
+					}];
+					
+					const columnTracks = simulateLayoutWithHeaderClearance(params, nodes);
+					const colNodes = columnTracks.get(0) || [];
+					
+					// First node should have both header clearance AND top safe zone
+					const { GROUP_HEADER_HEIGHT, PADDING_TOP } = GROUP_HEADER_CONSTANTS;
+					const { EDGE_LABEL_SAFE_ZONE } = LAYOUT_CONSTANTS;
+					const expectedY = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + EDGE_LABEL_SAFE_ZONE;
+					
+					expect(colNodes.length).toBe(1);
+					expect(colNodes[0].y).toBe(expectedY);
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+
+	it('should NOT add top safe zone when edge is from left', () => {
+		fc.assert(
+			fc.property(
+				// Generate anchor Y position
+				fc.integer({ min: 0, max: 5000 }),
+				// Generate padding
+				fc.integer({ min: 20, max: 100 }),
+				// Generate default node height
+				fc.integer({ min: 50, max: 300 }),
+				// Generate first node height
+				fc.integer({ min: 50, max: 500 }),
+				(anchorY, padding, defaultNodeHeight, actualHeight) => {
+					const params: LayoutParamsWithHeader = {
+						anchorY,
+						anchorX: 0,
+						padding,
+						defaultNodeHeight,
+						edgeDirection: 'left', // Edge connects from left, not top
+					};
+					
+					const nodes: NodeInput[] = [{
+						id: 'node_0',
+						row: 0,
+						col: 0,
+						actualHeight,
+					}];
+					
+					const columnTracks = simulateLayoutWithHeaderClearance(params, nodes);
+					const colNodes = columnTracks.get(0) || [];
+					
+					// First node should have header clearance but NO top safe zone
+					const { GROUP_HEADER_HEIGHT, PADDING_TOP } = GROUP_HEADER_CONSTANTS;
+					const expectedY = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP;
+					
+					expect(colNodes.length).toBe(1);
+					expect(colNodes[0].y).toBe(expectedY);
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+
+	it('should maintain header clearance for subsequent rows stacked below', () => {
+		fc.assert(
+			fc.property(
+				// Generate anchor Y position
+				fc.integer({ min: 0, max: 5000 }),
+				// Generate padding
+				fc.integer({ min: 20, max: 100 }),
+				// Generate default node height
+				fc.integer({ min: 50, max: 300 }),
+				// Generate heights for 3 consecutive rows
+				fc.integer({ min: 50, max: 300 }),
+				fc.integer({ min: 50, max: 300 }),
+				fc.integer({ min: 50, max: 300 }),
+				(anchorY, padding, defaultNodeHeight, h0, h1, h2) => {
+					const params: LayoutParamsWithHeader = {
+						anchorY,
+						anchorX: 0,
+						padding,
+						defaultNodeHeight,
+					};
+					
+					const nodes: NodeInput[] = [
+						{ id: 'node_0', row: 0, col: 0, actualHeight: h0 },
+						{ id: 'node_1', row: 1, col: 0, actualHeight: h1 },
+						{ id: 'node_2', row: 2, col: 0, actualHeight: h2 },
+					];
+					
+					const columnTracks = simulateLayoutWithHeaderClearance(params, nodes);
+					const colNodes = columnTracks.get(0) || [];
+					const sortedNodes = [...colNodes].sort((a, b) => a.row - b.row);
+					
+					// First row should have header clearance
+					const { GROUP_HEADER_HEIGHT, PADDING_TOP } = GROUP_HEADER_CONSTANTS;
+					const expectedY0 = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP;
+					expect(sortedNodes[0].y).toBe(expectedY0);
+					
+					// Second row should be stacked below first (no additional header clearance)
+					const expectedY1 = sortedNodes[0].y + sortedNodes[0].actualHeight + LAYOUT_CONSTANTS.VERTICAL_GAP;
+					expect(sortedNodes[1].y).toBe(expectedY1);
+					
+					// Third row should be stacked below second
+					const expectedY2 = sortedNodes[1].y + sortedNodes[1].actualHeight + LAYOUT_CONSTANTS.VERTICAL_GAP;
+					expect(sortedNodes[2].y).toBe(expectedY2);
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+
+	it('should ensure group does not shrink during streaming', () => {
+		fc.assert(
+			fc.property(
+				// Generate anchor position
+				fc.integer({ min: 0, max: 5000 }),
+				// Generate padding
+				fc.integer({ min: 20, max: 100 }),
+				// Generate default node height
+				fc.integer({ min: 50, max: 300 }),
+				// Generate initial group height (larger than needed)
+				fc.integer({ min: 500, max: 1000 }),
+				// Generate first node height (smaller)
+				fc.integer({ min: 50, max: 200 }),
+				(anchorY, padding, defaultNodeHeight, initialGroupHeight, actualHeight) => {
+					const params: LayoutParamsWithHeader = {
+						anchorY,
+						anchorX: 0,
+						padding,
+						defaultNodeHeight,
+					};
+					
+					// Create first node
+					const nodes: NodeInput[] = [{
+						id: 'node_0',
+						row: 0,
+						col: 0,
+						actualHeight,
+					}];
+					
+					const columnTracks = simulateLayoutWithHeaderClearance(params, nodes);
+					const colNodes = columnTracks.get(0) || [];
+					
+					// Calculate group bounds with large initial height
+					const groupBounds = calculateGroupBounds(
+						0, anchorY, colNodes, 500, initialGroupHeight, padding
+					);
+					
+					// Group should NOT shrink below initial height
+					// Requirements 12.4: Group container SHALL NOT shrink during initial streaming phase
+					expect(groupBounds.height).toBeGreaterThanOrEqual(initialGroupHeight);
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+});

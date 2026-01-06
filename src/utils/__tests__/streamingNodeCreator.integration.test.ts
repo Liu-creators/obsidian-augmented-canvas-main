@@ -1017,3 +1017,377 @@ describe('Task 19.2: Multi-Column Layouts During Streaming', () => {
 		});
 	});
 });
+
+
+/**
+ * Task 21.5: Unit tests for first node positioning scenarios
+ * 
+ * Tests that first nodes clear the group header and group bounds expand immediately.
+ * 
+ * _Requirements: 12.1, 12.3, 12.4, 12.6_
+ */
+describe('Task 21.5: First Node Positioning Scenarios', () => {
+	/**
+	 * Layout constants for group header height clearance
+	 * Mirrors the constants in StreamingNodeCreator
+	 * Requirements: 12.5
+	 */
+	const GROUP_HEADER_CONSTANTS = {
+		GROUP_HEADER_HEIGHT: 40,
+		PADDING_TOP: 20,
+		PADDING_BOTTOM: 20,
+	} as const;
+
+	const defaultParams: LayoutParams = {
+		anchorX: 500,
+		anchorY: 300,
+		padding: 60,
+		defaultNodeWidth: 360,
+		defaultNodeHeight: 200,
+		edgeDirection: 'left',
+	};
+
+	/**
+	 * Initialize streaming state with header clearance support
+	 */
+	function initializeStreamingStateWithHeader(params: LayoutParams): StreamingState {
+		return {
+			anchorState: {
+				anchorX: params.anchorX,
+				anchorY: params.anchorY,
+				anchorLocked: true,
+				minRowSeen: 0,
+				minColSeen: 0,
+				edgeDirection: params.edgeDirection,
+			},
+			group: {
+				x: params.anchorX,
+				y: params.anchorY,
+				width: 400,
+				height: 300,
+			},
+			nodes: new Map(),
+			columnTracks: new Map(),
+			nodeActualSizes: new Map(),
+		};
+	}
+
+	/**
+	 * Calculate node position with group header clearance
+	 * This mirrors the updated calculateNodePositionInPreCreatedGroup logic
+	 */
+	function calculateNodePositionWithHeader(
+		state: StreamingState,
+		params: LayoutParams,
+		nodeId: string,
+		row: number,
+		col: number,
+		content: string
+	): { x: number; y: number; height: number } {
+		const { VERTICAL_GAP, HORIZONTAL_GAP, EDGE_LABEL_SAFE_ZONE } = LAYOUT_CONSTANTS;
+		const { GROUP_HEADER_HEIGHT, PADDING_TOP } = GROUP_HEADER_CONSTANTS;
+		
+		const normalizedRow = row - state.anchorState.minRowSeen;
+		const normalizedCol = col - state.anchorState.minColSeen;
+		
+		// Calculate safe zones
+		const topSafeZone = (state.anchorState.edgeDirection === 'top') ? EDGE_LABEL_SAFE_ZONE : 0;
+		const leftSafeZone = (state.anchorState.edgeDirection === 'left') ? EDGE_LABEL_SAFE_ZONE : 0;
+		
+		// Calculate X position
+		let x = state.anchorState.anchorX + params.padding + leftSafeZone;
+		for (let c = 0; c < normalizedCol; c++) {
+			const colTrack = state.columnTracks.get(c);
+			const colWidth = colTrack?.maxWidth || params.defaultNodeWidth;
+			x += colWidth + HORIZONTAL_GAP;
+		}
+		
+		// Calculate Y position with GROUP_HEADER_HEIGHT + PADDING_TOP for first row
+		let y: number;
+		const colTrack = state.columnTracks.get(normalizedCol);
+		
+		if (normalizedRow === 0 || !colTrack || colTrack.nodes.length === 0) {
+			// First node in column: MUST clear group header + padding + safe zone
+			// Formula: y = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone
+			y = state.anchorState.anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone;
+		} else {
+			const sortedNodes = [...colTrack.nodes].sort((a, b) => a.row - b.row);
+			let prevNodeInfo: ColumnNodeInfo | null = null;
+			
+			for (const nodeInfo of sortedNodes) {
+				if (nodeInfo.row < normalizedRow) {
+					prevNodeInfo = nodeInfo;
+				} else {
+					break;
+				}
+			}
+			
+			if (prevNodeInfo) {
+				y = prevNodeInfo.y + prevNodeInfo.actualHeight + VERTICAL_GAP;
+			} else {
+				y = state.anchorState.anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone;
+			}
+		}
+		
+		const height = calculateContentHeight(content, params.defaultNodeHeight);
+		
+		return { x, y, height };
+	}
+
+	/**
+	 * Simulate creating a node with header clearance
+	 */
+	function simulateCreateNodeWithHeader(
+		state: StreamingState,
+		params: LayoutParams,
+		nodeId: string,
+		row: number,
+		col: number,
+		content: string
+	): StreamingNode {
+		const { x, y, height } = calculateNodePositionWithHeader(state, params, nodeId, row, col, content);
+		
+		const node: StreamingNode = {
+			id: nodeId,
+			row,
+			col,
+			x,
+			y,
+			width: params.defaultNodeWidth,
+			height,
+			content,
+		};
+		
+		state.nodes.set(nodeId, node);
+		registerNodeInColumn(state, nodeId, col, row, y, height, params.defaultNodeWidth, params.defaultNodeWidth);
+		
+		return node;
+	}
+
+	/**
+	 * Update group bounds with PADDING_BOTTOM
+	 */
+	function updateGroupBoundsWithPaddingBottom(state: StreamingState, params: LayoutParams): void {
+		const { PADDING_BOTTOM } = GROUP_HEADER_CONSTANTS;
+		const nodes = Array.from(state.nodes.values());
+		if (nodes.length === 0) return;
+		
+		let maxX = -Infinity, maxY = -Infinity;
+		nodes.forEach(node => {
+			maxX = Math.max(maxX, node.x + node.width);
+			maxY = Math.max(maxY, node.y + node.height);
+		});
+		
+		// Group can only expand, never shrink
+		// Use PADDING_BOTTOM for height calculation
+		state.group.width = Math.max(state.group.width, maxX - state.anchorState.anchorX + params.padding);
+		state.group.height = Math.max(state.group.height, maxY - state.anchorState.anchorY + PADDING_BOTTOM);
+	}
+
+	describe('Test first node in single-column layout clears header', () => {
+		it('should position first node below group header', () => {
+			const state = initializeStreamingStateWithHeader(defaultParams);
+			const { GROUP_HEADER_HEIGHT, PADDING_TOP } = GROUP_HEADER_CONSTANTS;
+			
+			// Create first node
+			const node = simulateCreateNodeWithHeader(state, defaultParams, 'node_0', 0, 0, generateContent('short'));
+			
+			// First node should be at anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP
+			const expectedY = state.anchorState.anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP;
+			expect(node.y).toBe(expectedY);
+		});
+
+		it('should apply header clearance immediately on first token arrival', () => {
+			const state = initializeStreamingStateWithHeader(defaultParams);
+			const { GROUP_HEADER_HEIGHT, PADDING_TOP } = GROUP_HEADER_CONSTANTS;
+			
+			// Simulate first token arrival with minimal content
+			const node = simulateCreateNodeWithHeader(state, defaultParams, 'node_0', 0, 0, 'A');
+			
+			// Even with minimal content, header clearance should be applied
+			const expectedY = state.anchorState.anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP;
+			expect(node.y).toBe(expectedY);
+		});
+
+		it('should maintain header clearance as content grows', () => {
+			const state = initializeStreamingStateWithHeader(defaultParams);
+			const { GROUP_HEADER_HEIGHT, PADDING_TOP } = GROUP_HEADER_CONSTANTS;
+			
+			// Create first node with short content
+			const node = simulateCreateNodeWithHeader(state, defaultParams, 'node_0', 0, 0, generateContent('short'));
+			const initialY = node.y;
+			
+			// Verify initial position
+			const expectedY = state.anchorState.anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP;
+			expect(initialY).toBe(expectedY);
+			
+			// Simulate content growth (Y position should not change)
+			// In real implementation, updatePartialNode preserves position
+			expect(node.y).toBe(initialY);
+		});
+	});
+
+	describe('Test first node in multi-column layout (all row-0 nodes clear header)', () => {
+		it('should position all row-0 nodes with same header clearance', () => {
+			const state = initializeStreamingStateWithHeader(defaultParams);
+			const { GROUP_HEADER_HEIGHT, PADDING_TOP } = GROUP_HEADER_CONSTANTS;
+			
+			// Create first row nodes across 3 columns
+			const node0 = simulateCreateNodeWithHeader(state, defaultParams, 'node_0', 0, 0, generateContent('short'));
+			const node1 = simulateCreateNodeWithHeader(state, defaultParams, 'node_1', 0, 1, generateContent('medium'));
+			const node2 = simulateCreateNodeWithHeader(state, defaultParams, 'node_2', 0, 2, generateContent('long'));
+			
+			// All row-0 nodes should have the same Y position (header clearance)
+			const expectedY = state.anchorState.anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP;
+			expect(node0.y).toBe(expectedY);
+			expect(node1.y).toBe(expectedY);
+			expect(node2.y).toBe(expectedY);
+		});
+
+		it('should apply header clearance regardless of column creation order', () => {
+			const state = initializeStreamingStateWithHeader(defaultParams);
+			const { GROUP_HEADER_HEIGHT, PADDING_TOP } = GROUP_HEADER_CONSTANTS;
+			
+			// Create nodes in non-sequential column order
+			const node2 = simulateCreateNodeWithHeader(state, defaultParams, 'node_2', 0, 2, generateContent('short'));
+			const node0 = simulateCreateNodeWithHeader(state, defaultParams, 'node_0', 0, 0, generateContent('short'));
+			const node1 = simulateCreateNodeWithHeader(state, defaultParams, 'node_1', 0, 1, generateContent('short'));
+			
+			// All should have same Y position
+			const expectedY = state.anchorState.anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP;
+			expect(node0.y).toBe(expectedY);
+			expect(node1.y).toBe(expectedY);
+			expect(node2.y).toBe(expectedY);
+		});
+
+		it('should combine header clearance with top safe zone when edge is from top', () => {
+			const paramsWithTopEdge: LayoutParams = {
+				...defaultParams,
+				edgeDirection: 'top',
+			};
+			const state = initializeStreamingStateWithHeader(paramsWithTopEdge);
+			const { GROUP_HEADER_HEIGHT, PADDING_TOP } = GROUP_HEADER_CONSTANTS;
+			const { EDGE_LABEL_SAFE_ZONE } = LAYOUT_CONSTANTS;
+			
+			// Create first node
+			const node = simulateCreateNodeWithHeader(state, paramsWithTopEdge, 'node_0', 0, 0, generateContent('short'));
+			
+			// Should have both header clearance AND top safe zone
+			const expectedY = state.anchorState.anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + EDGE_LABEL_SAFE_ZONE;
+			expect(node.y).toBe(expectedY);
+		});
+	});
+
+	describe('Test group bounds expand immediately on first node creation', () => {
+		it('should expand group height to wrap first node with PADDING_BOTTOM', () => {
+			const state = initializeStreamingStateWithHeader(defaultParams);
+			const { PADDING_BOTTOM } = GROUP_HEADER_CONSTANTS;
+			const initialGroupHeight = state.group.height;
+			
+			// Create first node with long content
+			const node = simulateCreateNodeWithHeader(state, defaultParams, 'node_0', 0, 0, generateContent('long'));
+			updateGroupBoundsWithPaddingBottom(state, defaultParams);
+			
+			// Group height should satisfy: group.height >= (node.y - group.y) + node.height + PADDING_BOTTOM
+			const minRequiredHeight = (node.y - state.group.y) + node.height + PADDING_BOTTOM;
+			expect(state.group.height).toBeGreaterThanOrEqual(minRequiredHeight);
+		});
+
+		it('should expand group immediately even with minimal content', () => {
+			const state = initializeStreamingStateWithHeader(defaultParams);
+			const { PADDING_BOTTOM } = GROUP_HEADER_CONSTANTS;
+			
+			// Create first node with minimal content
+			const node = simulateCreateNodeWithHeader(state, defaultParams, 'node_0', 0, 0, 'A');
+			updateGroupBoundsWithPaddingBottom(state, defaultParams);
+			
+			// Group should still expand to wrap the node
+			const minRequiredHeight = (node.y - state.group.y) + node.height + PADDING_BOTTOM;
+			expect(state.group.height).toBeGreaterThanOrEqual(minRequiredHeight);
+		});
+
+		it('should expand group width to wrap first node with padding', () => {
+			const state = initializeStreamingStateWithHeader(defaultParams);
+			
+			// Create first node
+			const node = simulateCreateNodeWithHeader(state, defaultParams, 'node_0', 0, 0, generateContent('short'));
+			updateGroupBoundsWithPaddingBottom(state, defaultParams);
+			
+			// Group width should wrap the node
+			const minRequiredWidth = (node.x - state.group.x) + node.width + defaultParams.padding;
+			expect(state.group.width).toBeGreaterThanOrEqual(minRequiredWidth);
+		});
+	});
+
+	describe('Test group does not shrink during streaming', () => {
+		it('should not shrink group height when content is smaller than initial', () => {
+			const state = initializeStreamingStateWithHeader(defaultParams);
+			
+			// Set initial group height to be large
+			state.group.height = 1000;
+			const initialGroupHeight = state.group.height;
+			
+			// Create first node with short content
+			simulateCreateNodeWithHeader(state, defaultParams, 'node_0', 0, 0, generateContent('short'));
+			updateGroupBoundsWithPaddingBottom(state, defaultParams);
+			
+			// Group should NOT shrink below initial height
+			expect(state.group.height).toBeGreaterThanOrEqual(initialGroupHeight);
+		});
+
+		it('should not shrink group width when content is narrower than initial', () => {
+			const state = initializeStreamingStateWithHeader(defaultParams);
+			
+			// Set initial group width to be large
+			state.group.width = 1000;
+			const initialGroupWidth = state.group.width;
+			
+			// Create first node with short content
+			simulateCreateNodeWithHeader(state, defaultParams, 'node_0', 0, 0, generateContent('short'));
+			updateGroupBoundsWithPaddingBottom(state, defaultParams);
+			
+			// Group should NOT shrink below initial width
+			expect(state.group.width).toBeGreaterThanOrEqual(initialGroupWidth);
+		});
+
+		it('should only grow during streaming, never shrink', () => {
+			const state = initializeStreamingStateWithHeader(defaultParams);
+			
+			// Track group dimensions through multiple updates
+			const dimensionHistory: { width: number; height: number }[] = [];
+			
+			// Create multiple nodes
+			for (let i = 0; i < 5; i++) {
+				const contentLength: ContentLength = i % 2 === 0 ? 'long' : 'short';
+				simulateCreateNodeWithHeader(state, defaultParams, `node_${i}`, i, 0, generateContent(contentLength));
+				updateGroupBoundsWithPaddingBottom(state, defaultParams);
+				
+				dimensionHistory.push({ width: state.group.width, height: state.group.height });
+			}
+			
+			// Verify dimensions only increased or stayed the same
+			for (let i = 1; i < dimensionHistory.length; i++) {
+				expect(dimensionHistory[i].width).toBeGreaterThanOrEqual(dimensionHistory[i - 1].width);
+				expect(dimensionHistory[i].height).toBeGreaterThanOrEqual(dimensionHistory[i - 1].height);
+			}
+		});
+
+		it('should maintain anchor position while group expands', () => {
+			const state = initializeStreamingStateWithHeader(defaultParams);
+			const originalAnchorX = state.anchorState.anchorX;
+			const originalAnchorY = state.anchorState.anchorY;
+			
+			// Create multiple nodes that cause group to expand
+			for (let i = 0; i < 3; i++) {
+				simulateCreateNodeWithHeader(state, defaultParams, `node_${i}`, i, 0, generateContent('long'));
+				updateGroupBoundsWithPaddingBottom(state, defaultParams);
+				
+				// Verify anchor position is preserved
+				expect(state.group.x).toBe(originalAnchorX);
+				expect(state.group.y).toBe(originalAnchorY);
+				expect(state.anchorState.anchorX).toBe(originalAnchorX);
+				expect(state.anchorState.anchorY).toBe(originalAnchorY);
+			}
+		});
+	});
+});

@@ -26,6 +26,9 @@ This document specifies the requirements for fixing the "layout jumping" issue i
 - **Reflow**: The process of recalculating and updating node positions when content changes cause height/width changes
 - **Height_Delta**: The difference between a node's previous height and its new height after content growth
 - **Animation_Frame**: A single rendering cycle (typically 16.67ms at 60fps) used to batch visual updates
+- **GROUP_HEADER_HEIGHT**: The height of the group's title bar/header area (default: 40px) that must be accounted for when positioning the first node
+- **PADDING_TOP**: The top padding inside the group below the header (default: 20px)
+- **PADDING_BOTTOM**: The bottom padding inside the group (default: 20px)
 
 ## Requirements
 
@@ -145,3 +148,16 @@ This document specifies the requirements for fixing the "layout jumping" issue i
 1. THE StreamingNodeCreator SHALL ensure all created nodes have a solid background color
 2. WHEN nodes are positioned, THE StreamingNodeCreator SHALL maintain the minimum VERTICAL_GAP (40px) between nodes to ensure readability
 3. IF nodes would overlap due to calculation errors, THE StreamingNodeCreator SHALL detect and correct the overlap before rendering
+
+### Requirement 12: Group Header Height Clearance
+
+**User Story:** As a user, I want the first node inside a group to be positioned below the group's title bar, so that the node content doesn't overflow or clip out of the top border of the group container.
+
+#### Acceptance Criteria
+
+1. WHEN the first node (row=0) is created inside a group, THE StreamingNodeCreator SHALL position it at: `Node.Y = Group.Y + GROUP_HEADER_HEIGHT + PADDING_TOP`
+2. WHEN calculating the Y-position of the first node, THE StreamingNodeCreator SHALL apply this formula immediately on the first token arrival, NOT after a re-layout event
+3. WHEN the first node is created, THE Group's height SHALL immediately expand to: `Group.height = max(MinHeight, Node.relativeY + Node.height + PADDING_BOTTOM)`
+4. THE Group container SHALL NOT shrink smaller than its content during the initial streaming phase
+5. THE GROUP_HEADER_HEIGHT SHALL be at least 40 pixels to accommodate the group's title bar
+6. WHEN multiple nodes exist in row 0 (first row), ALL nodes in that row SHALL clear the group header by the same margin

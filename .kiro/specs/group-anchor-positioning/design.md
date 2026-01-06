@@ -14,6 +14,8 @@ This design addresses multiple layout issues in the streaming canvas mind map ap
 
 5. **Column Collision**: Adjacent columns may touch or overlap when nodes have wide content.
 
+6. **First Node Header Overflow (NEW - Requirement 12)**: The first node is positioned too high during the initial render, causing it to overflow/clip out of the top border of the Group container. This occurs because the layout engine fails to account for the Group Header Height and Top Padding during the very first render cycle.
+
 The solution introduces:
 - **Anchor-Based Coordinate System**: All node positions within a pre-created group are calculated relative to the group's original position
 - **Immutable Anchor During Streaming**: The group's top-left (x, y) position is locked and never modified during streaming - only width/height can change
@@ -21,6 +23,7 @@ The solution introduces:
 - **Real-Time Reflow**: When a node's content grows, all nodes below it are immediately pushed down
 - **Edge Label Safe Zone**: Additional margin prevents content from overlapping edge labels
 - **Column Width Tracking**: Horizontal spacing uses actual column widths for proper separation
+- **Group Header Clearance (NEW)**: First row nodes are positioned at `anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP` to clear the group's title bar from the first millisecond of rendering
 
 ## Architecture
 
@@ -56,7 +59,8 @@ The solution introduces:
 │  │  Output: { x, y } using dynamic stack layout             │   │
 │  │                                                          │   │
 │  │  Y-Position Formula (Dynamic Stack):                     │   │
-│  │    if row == 0: y = anchorY + padding + safeZone         │   │
+│  │    if row == 0: y = anchorY + GROUP_HEADER_HEIGHT        │   │
+│  │                     + PADDING_TOP + safeZone             │   │
 │  │    else: y = prevNode.y + prevNode.actualHeight + gap    │   │
 │  │                                                          │   │
 │  │  X-Position Formula (Column Tracking):                   │   │
@@ -134,6 +138,9 @@ const LAYOUT_CONSTANTS = {
   VERTICAL_GAP: 40,           // Minimum vertical gap between nodes
   HORIZONTAL_GAP: 40,         // Minimum horizontal gap between columns
   EDGE_LABEL_SAFE_ZONE: 40,   // Safe zone for edge labels
+  GROUP_HEADER_HEIGHT: 40,    // Height of group title bar (NEW - Requirement 12)
+  PADDING_TOP: 20,            // Top padding below header (NEW - Requirement 12)
+  PADDING_BOTTOM: 20,         // Bottom padding inside group (NEW - Requirement 12)
 };
 ```
 
@@ -218,6 +225,9 @@ class StreamingNodeCreator {
  * Calculate absolute pixel position for a node within a pre-created group
  * Uses dynamic stack layout instead of fixed grid
  * 
+ * CRITICAL (Requirement 12): The first node must clear the group header.
+ * Formula for first row: y = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone
+ * 
  * @param nodeXML - Node data with row/col grid coordinates
  * @returns Pixel coordinates using dynamic stack layout
  */
@@ -232,7 +242,13 @@ private calculateNodePositionInPreCreatedGroup(
   const padding = this.settings.groupPadding || 60;
   const defaultNodeWidth = this.settings.gridNodeWidth || 360;
   const defaultNodeHeight = this.settings.gridNodeHeight || 200;
-  const { VERTICAL_GAP, HORIZONTAL_GAP, EDGE_LABEL_SAFE_ZONE } = LAYOUT_CONSTANTS;
+  const { 
+    VERTICAL_GAP, 
+    HORIZONTAL_GAP, 
+    EDGE_LABEL_SAFE_ZONE,
+    GROUP_HEADER_HEIGHT,  // NEW: Account for group title bar
+    PADDING_TOP           // NEW: Top padding below header
+  } = LAYOUT_CONSTANTS;
   
   // Clamp coordinates
   const MAX_GRID_COORD = 100;
@@ -259,12 +275,15 @@ private calculateNodePositionInPreCreatedGroup(
   }
   
   // Calculate Y position using dynamic stack layout
+  // CRITICAL (Requirement 12): First row must clear the group header
   let y: number;
   const colTrack = this.columnTracks.get(normalizedCol);
   
   if (normalizedRow === 0 || !colTrack || colTrack.nodes.length === 0) {
-    // First node in column: use anchor + padding + safe zone
-    y = this.anchorState.anchorY + padding + topSafeZone;
+    // First node in column: MUST clear group header + padding + safe zone
+    // Formula: y = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone
+    // This ensures the first node is positioned below the group's title bar
+    y = this.anchorState.anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone;
   } else {
     // Find the previous node in this column
     const sortedNodes = [...colTrack.nodes].sort((a, b) => a.row - b.row);
@@ -274,8 +293,8 @@ private calculateNodePositionInPreCreatedGroup(
       // Stack below previous node
       y = prevNodeInfo.y + prevNodeInfo.actualHeight + VERTICAL_GAP;
     } else {
-      // No previous node found, use base position
-      y = this.anchorState.anchorY + padding + topSafeZone;
+      // No previous node found, use base position with header clearance
+      y = this.anchorState.anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone;
     }
   }
   
@@ -712,6 +731,20 @@ The group may only expand by increasing width and height; x and y coordinates ar
 *For any* node created by StreamingNodeCreator, the node SHALL have a non-null background color property set, ensuring visual clarity and readability even when nodes are positioned close together.
 
 **Validates: Requirements 11.1**
+
+### Property 12: Group Header Height Clearance (NEW)
+
+*For any* node in the first row (row=0) of a group, the Y-position SHALL satisfy:
+- `node.y >= group.y + GROUP_HEADER_HEIGHT + PADDING_TOP`
+
+This ensures the first node is positioned below the group's title bar from the very first render cycle, preventing content from clipping out of the top border of the group container.
+
+Additionally, *for any* group with at least one node, the group's height SHALL satisfy:
+- `group.height >= (node.y - group.y) + node.height + PADDING_BOTTOM`
+
+This ensures the group container immediately expands to wrap the first node.
+
+**Validates: Requirements 12.1, 12.2, 12.3, 12.4, 12.5, 12.6**
 
 ## Error Handling
 
