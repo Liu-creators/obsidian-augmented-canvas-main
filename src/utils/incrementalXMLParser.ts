@@ -24,6 +24,29 @@ export class IncrementalXMLParser {
 	private processedLength: number = 0;
 	
 	/**
+	 * Sanitize content by removing trailing partial XML tags
+	 * 
+	 * Handles these cases:
+	 * - Trailing `<` (start of potential tag)
+	 * - Trailing `</` (start of closing tag)
+	 * - Trailing `</xxx` (partial closing tag name)
+	 * - Trailing `<xxx` (partial opening tag name)
+	 * 
+	 * Edge cases preserved (not removed):
+	 * - `< ` (less-than followed by space, e.g., "a < b")
+	 * - `<5` (less-than followed by digit, e.g., "x<5")
+	 * - Any `<` not at the very end of the string
+	 * 
+	 * @param content - Raw content that may contain partial tags
+	 * @returns Sanitized content with trailing partial tags removed
+	 */
+	public sanitizeContent(content: string): string {
+		// Remove trailing partial tags using regex
+		// Pattern: < optionally followed by / optionally followed by letters at end of string
+		return content.replace(/<\/?[a-zA-Z]*$/, '');
+	}
+	
+	/**
 	 * Append new chunk to buffer
 	 */
 	public append(chunk: string): void {
@@ -129,9 +152,12 @@ export class IncrementalXMLParser {
 				// Content is everything from the end of the opening tag to the end of unprocessed
 				// or until the next tag starts (opening or closing)
 				const nextTagStart = afterTag.search(/<(node|edge|group|\/node|\/group)/);
-				const content = nextTagStart === -1 
+				const rawContent = nextTagStart === -1 
 					? afterTag.trim() 
 					: afterTag.substring(0, nextTagStart).trim();
+				
+				// Apply sanitization to remove trailing partial tags (fixes tag leaking bug)
+				const content = this.sanitizeContent(rawContent);
 				
 				const node: NodeXML = {
 					id,

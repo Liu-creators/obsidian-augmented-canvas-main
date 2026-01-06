@@ -173,7 +173,7 @@ export const DEFAULT_SETTINGS: AugmentedCanvasSettings = {
 	groupGenerationEnabled: true,
 	defaultGroupColor: "4",
 	groupNodeSpacing: 40,
-	groupPadding: 60,
+	groupPadding: 40,
 	gridNodeWidth: 360,
 	gridNodeHeight: 200,
 	gridGap: 40,
