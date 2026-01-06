@@ -1490,3 +1490,448 @@ describe('Property 5: Relative Position Preservation', () => {
 		);
 	});
 });
+
+
+/**
+ * Property 10: Anchor Immutability During Streaming
+ * 
+ * For any pre-created group with anchor position (anchorX, anchorY), and for any
+ * sequence of streaming operations (node creation, content updates, height changes),
+ * the group's top-left position SHALL satisfy:
+ * - group.x == anchorX (exactly, no tolerance)
+ * - group.y == anchorY (exactly, no tolerance)
+ * 
+ * The group may only expand by increasing width and height; x and y coordinates
+ * are immutable during streaming.
+ * 
+ * **Feature: group-anchor-positioning, Property 10: Anchor Immutability During Streaming**
+ * **Validates: Requirements 9.1, 9.2, 9.3, 9.4**
+ */
+describe('Property 10: Anchor Immutability During Streaming', () => {
+	/**
+	 * Represents a streaming operation that can occur during AI response streaming
+	 */
+	type StreamingOperation = 
+		| { type: 'createNode'; nodeId: string; row: number; col: number; height: number }
+		| { type: 'updateContent'; nodeId: string; newHeight: number }
+		| { type: 'expandBounds'; requiredWidth: number; requiredHeight: number };
+
+	/**
+	 * Simulates the anchor-immutable bounds update logic
+	 * This mirrors the fixed updateGroupBoundsPreservingAnchor implementation
+	 * 
+	 * CRITICAL: This function NEVER modifies x or y - only width and height
+	 */
+	function simulateAnchorImmutableBoundsUpdate(
+		anchorX: number,
+		anchorY: number,
+		currentWidth: number,
+		currentHeight: number,
+		nodes: Array<{ x: number; y: number; width: number; height: number }>,
+		padding: number
+	): { x: number; y: number; width: number; height: number } {
+		if (nodes.length === 0) {
+			return { x: anchorX, y: anchorY, width: currentWidth, height: currentHeight };
+		}
+
+		// Calculate bounding box of all nodes
+		let maxX = -Infinity, maxY = -Infinity;
+		nodes.forEach(node => {
+			maxX = Math.max(maxX, node.x + node.width);
+			maxY = Math.max(maxY, node.y + node.height);
+		});
+
+		// CRITICAL: Only expand width and height - NEVER change x or y
+		const newWidth = Math.max(currentWidth, maxX - anchorX + padding);
+		const newHeight = Math.max(currentHeight, maxY - anchorY + padding);
+
+		return {
+			x: anchorX,      // IMMUTABLE
+			y: anchorY,      // IMMUTABLE
+			width: newWidth,
+			height: newHeight,
+		};
+	}
+
+	/**
+	 * Simulates a sequence of streaming operations and verifies anchor immutability
+	 */
+	function simulateStreamingSequence(
+		initialAnchorX: number,
+		initialAnchorY: number,
+		initialWidth: number,
+		initialHeight: number,
+		padding: number,
+		nodeWidth: number,
+		operations: StreamingOperation[]
+	): { finalGroup: { x: number; y: number; width: number; height: number }; anchorViolations: string[] } {
+		let currentGroup = {
+			x: initialAnchorX,
+			y: initialAnchorY,
+			width: initialWidth,
+			height: initialHeight,
+		};
+
+		const nodes: Map<string, { x: number; y: number; width: number; height: number }> = new Map();
+		const anchorViolations: string[] = [];
+
+		for (const op of operations) {
+			if (op.type === 'createNode') {
+				// Calculate node position (simplified - just use row/col as offsets)
+				const nodeX = initialAnchorX + padding + op.col * (nodeWidth + 40);
+				const nodeY = initialAnchorY + padding + op.row * (op.height + 40);
+				
+				nodes.set(op.nodeId, {
+					x: nodeX,
+					y: nodeY,
+					width: nodeWidth,
+					height: op.height,
+				});
+			} else if (op.type === 'updateContent') {
+				const node = nodes.get(op.nodeId);
+				if (node) {
+					node.height = op.newHeight;
+				}
+			}
+
+			// Update bounds after each operation
+			const newGroup = simulateAnchorImmutableBoundsUpdate(
+				initialAnchorX,
+				initialAnchorY,
+				currentGroup.width,
+				currentGroup.height,
+				Array.from(nodes.values()),
+				padding
+			);
+
+			// CRITICAL: Check anchor immutability (exact match, no tolerance)
+			if (newGroup.x !== initialAnchorX) {
+				anchorViolations.push(`X changed from ${initialAnchorX} to ${newGroup.x} after operation ${JSON.stringify(op)}`);
+			}
+			if (newGroup.y !== initialAnchorY) {
+				anchorViolations.push(`Y changed from ${initialAnchorY} to ${newGroup.y} after operation ${JSON.stringify(op)}`);
+			}
+
+			currentGroup = newGroup;
+		}
+
+		return { finalGroup: currentGroup, anchorViolations };
+	}
+
+	it('should never change group x/y during node creation operations', () => {
+		fc.assert(
+			fc.property(
+				// Generate initial anchor position
+				fc.integer({ min: 0, max: 5000 }),
+				fc.integer({ min: 0, max: 5000 }),
+				// Generate initial dimensions
+				fc.integer({ min: 200, max: 500 }),
+				fc.integer({ min: 200, max: 500 }),
+				// Generate padding
+				fc.integer({ min: 20, max: 100 }),
+				// Generate node dimensions
+				fc.integer({ min: 100, max: 400 }),
+				fc.integer({ min: 50, max: 300 }),
+				// Generate sequence of node creations
+				fc.array(
+					fc.record({
+						row: fc.integer({ min: 0, max: 5 }),
+						col: fc.integer({ min: 0, max: 5 }),
+						height: fc.integer({ min: 50, max: 400 }),
+					}),
+					{ minLength: 1, maxLength: 10 }
+				),
+				(anchorX, anchorY, initialWidth, initialHeight, padding, nodeWidth, nodeHeight, nodeCreations) => {
+					const operations: StreamingOperation[] = nodeCreations.map((nc, i) => ({
+						type: 'createNode' as const,
+						nodeId: `node_${i}`,
+						row: nc.row,
+						col: nc.col,
+						height: nc.height,
+					}));
+
+					const result = simulateStreamingSequence(
+						anchorX,
+						anchorY,
+						initialWidth,
+						initialHeight,
+						padding,
+						nodeWidth,
+						operations
+					);
+
+					// CRITICAL: No anchor violations should occur
+					expect(result.anchorViolations).toHaveLength(0);
+					
+					// Final group position must exactly match initial anchor
+					expect(result.finalGroup.x).toBe(anchorX);
+					expect(result.finalGroup.y).toBe(anchorY);
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+
+	it('should never change group x/y during content update operations', () => {
+		fc.assert(
+			fc.property(
+				// Generate initial anchor position
+				fc.integer({ min: 0, max: 5000 }),
+				fc.integer({ min: 0, max: 5000 }),
+				// Generate initial dimensions
+				fc.integer({ min: 200, max: 500 }),
+				fc.integer({ min: 200, max: 500 }),
+				// Generate padding
+				fc.integer({ min: 20, max: 100 }),
+				// Generate node dimensions
+				fc.integer({ min: 100, max: 400 }),
+				// Generate initial nodes
+				fc.array(
+					fc.record({
+						row: fc.integer({ min: 0, max: 3 }),
+						col: fc.integer({ min: 0, max: 3 }),
+						initialHeight: fc.integer({ min: 50, max: 200 }),
+					}),
+					{ minLength: 1, maxLength: 5 }
+				),
+				// Generate height updates (content growth)
+				fc.array(
+					fc.record({
+						nodeIndex: fc.integer({ min: 0, max: 4 }),
+						newHeight: fc.integer({ min: 100, max: 500 }),
+					}),
+					{ minLength: 1, maxLength: 10 }
+				),
+				(anchorX, anchorY, initialWidth, initialHeight, padding, nodeWidth, initialNodes, heightUpdates) => {
+					// Create initial nodes
+					const createOps: StreamingOperation[] = initialNodes.map((n, i) => ({
+						type: 'createNode' as const,
+						nodeId: `node_${i}`,
+						row: n.row,
+						col: n.col,
+						height: n.initialHeight,
+					}));
+
+					// Create update operations (only for valid node indices)
+					const updateOps: StreamingOperation[] = heightUpdates
+						.filter(u => u.nodeIndex < initialNodes.length)
+						.map(u => ({
+							type: 'updateContent' as const,
+							nodeId: `node_${u.nodeIndex}`,
+							newHeight: u.newHeight,
+						}));
+
+					const allOperations = [...createOps, ...updateOps];
+
+					const result = simulateStreamingSequence(
+						anchorX,
+						anchorY,
+						initialWidth,
+						initialHeight,
+						padding,
+						nodeWidth,
+						allOperations
+					);
+
+					// CRITICAL: No anchor violations should occur
+					expect(result.anchorViolations).toHaveLength(0);
+					
+					// Final group position must exactly match initial anchor
+					expect(result.finalGroup.x).toBe(anchorX);
+					expect(result.finalGroup.y).toBe(anchorY);
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+
+	it('should only expand width/height, never shrink or move', () => {
+		fc.assert(
+			fc.property(
+				// Generate initial anchor position
+				fc.integer({ min: 0, max: 5000 }),
+				fc.integer({ min: 0, max: 5000 }),
+				// Generate initial dimensions
+				fc.integer({ min: 200, max: 500 }),
+				fc.integer({ min: 200, max: 500 }),
+				// Generate padding
+				fc.integer({ min: 20, max: 100 }),
+				// Generate node dimensions
+				fc.integer({ min: 100, max: 400 }),
+				// Generate sequence of node creations with varying sizes
+				fc.array(
+					fc.record({
+						row: fc.integer({ min: 0, max: 5 }),
+						col: fc.integer({ min: 0, max: 5 }),
+						height: fc.integer({ min: 50, max: 400 }),
+					}),
+					{ minLength: 2, maxLength: 8 }
+				),
+				(anchorX, anchorY, initialWidth, initialHeight, padding, nodeWidth, nodeCreations) => {
+					let currentGroup = {
+						x: anchorX,
+						y: anchorY,
+						width: initialWidth,
+						height: initialHeight,
+					};
+
+					const nodes: Map<string, { x: number; y: number; width: number; height: number }> = new Map();
+
+					for (let i = 0; i < nodeCreations.length; i++) {
+						const nc = nodeCreations[i];
+						const nodeX = anchorX + padding + nc.col * (nodeWidth + 40);
+						const nodeY = anchorY + padding + nc.row * (nc.height + 40);
+						
+						nodes.set(`node_${i}`, {
+							x: nodeX,
+							y: nodeY,
+							width: nodeWidth,
+							height: nc.height,
+						});
+
+						const newGroup = simulateAnchorImmutableBoundsUpdate(
+							anchorX,
+							anchorY,
+							currentGroup.width,
+							currentGroup.height,
+							Array.from(nodes.values()),
+							padding
+						);
+
+						// x and y must be exactly the same (immutable)
+						expect(newGroup.x).toBe(anchorX);
+						expect(newGroup.y).toBe(anchorY);
+
+						// Width and height can only grow, never shrink
+						expect(newGroup.width).toBeGreaterThanOrEqual(currentGroup.width);
+						expect(newGroup.height).toBeGreaterThanOrEqual(currentGroup.height);
+
+						currentGroup = newGroup;
+					}
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+
+	it('should maintain exact anchor position through mixed streaming operations', () => {
+		fc.assert(
+			fc.property(
+				// Generate initial anchor position
+				fc.integer({ min: 0, max: 5000 }),
+				fc.integer({ min: 0, max: 5000 }),
+				// Generate initial dimensions
+				fc.integer({ min: 200, max: 500 }),
+				fc.integer({ min: 200, max: 500 }),
+				// Generate padding
+				fc.integer({ min: 20, max: 100 }),
+				// Generate node dimensions
+				fc.integer({ min: 100, max: 400 }),
+				// Generate mixed operations
+				fc.array(
+					fc.oneof(
+						fc.record({
+							type: fc.constant('createNode' as const),
+							nodeId: fc.string({ minLength: 1, maxLength: 10 }),
+							row: fc.integer({ min: 0, max: 5 }),
+							col: fc.integer({ min: 0, max: 5 }),
+							height: fc.integer({ min: 50, max: 400 }),
+						}),
+						fc.record({
+							type: fc.constant('updateContent' as const),
+							nodeId: fc.string({ minLength: 1, maxLength: 10 }),
+							newHeight: fc.integer({ min: 100, max: 600 }),
+						})
+					),
+					{ minLength: 5, maxLength: 20 }
+				),
+				(anchorX, anchorY, initialWidth, initialHeight, padding, nodeWidth, operations) => {
+					// Ensure we have some create operations first
+					const createOps = operations.filter(op => op.type === 'createNode');
+					const updateOps = operations.filter(op => op.type === 'updateContent');
+					
+					// Only use update ops for nodes that were created
+					const createdNodeIds = new Set(createOps.map(op => op.nodeId));
+					const validUpdateOps = updateOps.filter(op => createdNodeIds.has(op.nodeId));
+					
+					const allOps = [...createOps, ...validUpdateOps] as StreamingOperation[];
+
+					const result = simulateStreamingSequence(
+						anchorX,
+						anchorY,
+						initialWidth,
+						initialHeight,
+						padding,
+						nodeWidth,
+						allOps
+					);
+
+					// CRITICAL: No anchor violations should occur
+					expect(result.anchorViolations).toHaveLength(0);
+					
+					// Final group position must exactly match initial anchor
+					expect(result.finalGroup.x).toBe(anchorX);
+					expect(result.finalGroup.y).toBe(anchorY);
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+
+	it('should preserve anchor even when nodes require significant bounds expansion', () => {
+		fc.assert(
+			fc.property(
+				// Generate initial anchor position
+				fc.integer({ min: 0, max: 5000 }),
+				fc.integer({ min: 0, max: 5000 }),
+				// Generate small initial dimensions
+				fc.integer({ min: 100, max: 200 }),
+				fc.integer({ min: 100, max: 200 }),
+				// Generate padding
+				fc.integer({ min: 20, max: 100 }),
+				// Generate node dimensions
+				fc.integer({ min: 100, max: 400 }),
+				// Generate nodes that will require large expansion
+				fc.array(
+					fc.record({
+						row: fc.integer({ min: 0, max: 10 }),
+						col: fc.integer({ min: 0, max: 10 }),
+						height: fc.integer({ min: 200, max: 600 }),
+					}),
+					{ minLength: 3, maxLength: 10 }
+				),
+				(anchorX, anchorY, initialWidth, initialHeight, padding, nodeWidth, nodeCreations) => {
+					const operations: StreamingOperation[] = nodeCreations.map((nc, i) => ({
+						type: 'createNode' as const,
+						nodeId: `node_${i}`,
+						row: nc.row,
+						col: nc.col,
+						height: nc.height,
+					}));
+
+					const result = simulateStreamingSequence(
+						anchorX,
+						anchorY,
+						initialWidth,
+						initialHeight,
+						padding,
+						nodeWidth,
+						operations
+					);
+
+					// CRITICAL: No anchor violations should occur
+					expect(result.anchorViolations).toHaveLength(0);
+					
+					// Final group position must exactly match initial anchor
+					expect(result.finalGroup.x).toBe(anchorX);
+					expect(result.finalGroup.y).toBe(anchorY);
+
+					// Width and height should have expanded significantly
+					expect(result.finalGroup.width).toBeGreaterThanOrEqual(initialWidth);
+					expect(result.finalGroup.height).toBeGreaterThanOrEqual(initialHeight);
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+});

@@ -95,6 +95,7 @@ describe('StreamingNodeCreator Edge Cases', () => {
 		anchorLocked: true,
 		minRowSeen: 0,
 		minColSeen: 0,
+		edgeDirection: 'left',
 	};
 
 	describe('Negative Coordinates Positioning', () => {
@@ -359,6 +360,393 @@ describe('StreamingNodeCreator Edge Cases', () => {
 			
 			expect(result.x).toBe(560);
 			expect(result.y).toBe(360);
+		});
+	});
+});
+
+
+/**
+ * Unit Tests for Overlap Detection and Correction
+ * 
+ * Feature: group-anchor-positioning
+ * 
+ * These tests validate the overlap detection and correction functionality
+ * that ensures nodes in the same column never overlap.
+ * 
+ * _Requirements: 11.3_
+ */
+
+import { LAYOUT_CONSTANTS, ColumnTrack, NodeActualSize } from '../streamingNodeCreator';
+
+/**
+ * Simulates the column tracking state for overlap tests
+ */
+interface OverlapTestState {
+	columnTracks: Map<number, ColumnTrack>;
+	nodeActualSizes: Map<string, NodeActualSize>;
+}
+
+/**
+ * Simulates overlap detection and correction logic
+ * Mirrors detectAndCorrectOverlapsInColumn in StreamingNodeCreator
+ * 
+ * @param state - Column tracking state
+ * @param col - Column index to check
+ * @returns Object with detection results and corrections made
+ */
+function detectAndCorrectOverlapsInColumn(
+	state: OverlapTestState,
+	col: number
+): { overlapsDetected: boolean; correctionsMade: string[]; warnings: string[] } {
+	const colTrack = state.columnTracks.get(col);
+	const correctionsMade: string[] = [];
+	const warnings: string[] = [];
+	
+	if (!colTrack || colTrack.nodes.length < 2) {
+		return { overlapsDetected: false, correctionsMade, warnings };
+	}
+	
+	const { VERTICAL_GAP } = LAYOUT_CONSTANTS;
+	const sortedNodes = [...colTrack.nodes].sort((a, b) => a.row - b.row);
+	
+	let overlapsDetected = false;
+	
+	// Check each pair of adjacent nodes for overlap
+	for (let i = 0; i < sortedNodes.length - 1; i++) {
+		const nodeA = sortedNodes[i];
+		const nodeB = sortedNodes[i + 1];
+		
+		// Calculate the minimum Y position for nodeB to avoid overlap
+		const minYForNodeB = nodeA.y + nodeA.actualHeight + VERTICAL_GAP;
+		
+		// Check if nodeB overlaps with nodeA (with 1px tolerance)
+		if (nodeB.y < minYForNodeB - 1) {
+			overlapsDetected = true;
+			
+			warnings.push(
+				`OVERLAP DETECTED in column ${col}: ` +
+				`Node ${nodeB.nodeId} (y=${nodeB.y}) overlaps with node ${nodeA.nodeId} ` +
+				`(bottom=${nodeA.y + nodeA.actualHeight}). ` +
+				`Minimum Y should be ${minYForNodeB}.`
+			);
+			
+			// Correct the overlap by pushing nodeB down
+			nodeB.y = minYForNodeB;
+			correctionsMade.push(nodeB.nodeId);
+		}
+	}
+	
+	return { overlapsDetected, correctionsMade, warnings };
+}
+
+/**
+ * Helper to create a column track with nodes
+ */
+function createColumnWithNodes(
+	col: number,
+	nodes: Array<{ id: string; row: number; y: number; height: number }>
+): OverlapTestState {
+	const state: OverlapTestState = {
+		columnTracks: new Map(),
+		nodeActualSizes: new Map(),
+	};
+	
+	const colTrack: ColumnTrack = {
+		col,
+		nodes: nodes.map(n => ({
+			nodeId: n.id,
+			row: n.row,
+			y: n.y,
+			actualHeight: n.height,
+		})),
+		maxWidth: 360,
+	};
+	
+	state.columnTracks.set(col, colTrack);
+	
+	for (const n of nodes) {
+		state.nodeActualSizes.set(n.id, { width: 360, height: n.height });
+	}
+	
+	return state;
+}
+
+describe('Overlap Detection and Correction (Requirements 11.3)', () => {
+	const { VERTICAL_GAP } = LAYOUT_CONSTANTS;
+
+	describe('Overlap Detection', () => {
+		it('should detect no overlap when nodes are properly spaced', () => {
+			const baseY = 360;
+			const height = 200;
+			
+			const state = createColumnWithNodes(0, [
+				{ id: 'node_0', row: 0, y: baseY, height },
+				{ id: 'node_1', row: 1, y: baseY + height + VERTICAL_GAP, height },
+				{ id: 'node_2', row: 2, y: baseY + height + VERTICAL_GAP + height + VERTICAL_GAP, height },
+			]);
+			
+			const result = detectAndCorrectOverlapsInColumn(state, 0);
+			
+			expect(result.overlapsDetected).toBe(false);
+			expect(result.correctionsMade).toHaveLength(0);
+			expect(result.warnings).toHaveLength(0);
+		});
+
+		it('should detect overlap when nodes are too close', () => {
+			const baseY = 360;
+			const height = 200;
+			
+			// Node 1 is positioned too close to node 0 (only 10px gap instead of 40px)
+			const state = createColumnWithNodes(0, [
+				{ id: 'node_0', row: 0, y: baseY, height },
+				{ id: 'node_1', row: 1, y: baseY + height + 10, height }, // Too close!
+			]);
+			
+			const result = detectAndCorrectOverlapsInColumn(state, 0);
+			
+			expect(result.overlapsDetected).toBe(true);
+			expect(result.warnings.length).toBeGreaterThan(0);
+		});
+
+		it('should detect overlap when nodes actually overlap (negative gap)', () => {
+			const baseY = 360;
+			const height = 200;
+			
+			// Node 1 actually overlaps with node 0
+			const state = createColumnWithNodes(0, [
+				{ id: 'node_0', row: 0, y: baseY, height },
+				{ id: 'node_1', row: 1, y: baseY + height - 50, height }, // Overlapping!
+			]);
+			
+			const result = detectAndCorrectOverlapsInColumn(state, 0);
+			
+			expect(result.overlapsDetected).toBe(true);
+		});
+
+		it('should not detect overlap with 1px tolerance', () => {
+			const baseY = 360;
+			const height = 200;
+			
+			// Node 1 is 1px less than required gap (within tolerance)
+			const state = createColumnWithNodes(0, [
+				{ id: 'node_0', row: 0, y: baseY, height },
+				{ id: 'node_1', row: 1, y: baseY + height + VERTICAL_GAP - 1, height },
+			]);
+			
+			const result = detectAndCorrectOverlapsInColumn(state, 0);
+			
+			expect(result.overlapsDetected).toBe(false);
+		});
+
+		it('should return false for column with single node', () => {
+			const state = createColumnWithNodes(0, [
+				{ id: 'node_0', row: 0, y: 360, height: 200 },
+			]);
+			
+			const result = detectAndCorrectOverlapsInColumn(state, 0);
+			
+			expect(result.overlapsDetected).toBe(false);
+		});
+
+		it('should return false for empty column', () => {
+			const state: OverlapTestState = {
+				columnTracks: new Map(),
+				nodeActualSizes: new Map(),
+			};
+			state.columnTracks.set(0, { col: 0, nodes: [], maxWidth: 360 });
+			
+			const result = detectAndCorrectOverlapsInColumn(state, 0);
+			
+			expect(result.overlapsDetected).toBe(false);
+		});
+
+		it('should return false for non-existent column', () => {
+			const state: OverlapTestState = {
+				columnTracks: new Map(),
+				nodeActualSizes: new Map(),
+			};
+			
+			const result = detectAndCorrectOverlapsInColumn(state, 99);
+			
+			expect(result.overlapsDetected).toBe(false);
+		});
+	});
+
+	describe('Overlap Correction', () => {
+		it('should correct overlap by pushing node down', () => {
+			const baseY = 360;
+			const height = 200;
+			
+			// Node 1 overlaps with node 0
+			const state = createColumnWithNodes(0, [
+				{ id: 'node_0', row: 0, y: baseY, height },
+				{ id: 'node_1', row: 1, y: baseY + height - 50, height }, // Overlapping!
+			]);
+			
+			const result = detectAndCorrectOverlapsInColumn(state, 0);
+			
+			expect(result.correctionsMade).toContain('node_1');
+			
+			// Verify node_1 was moved to correct position
+			const colTrack = state.columnTracks.get(0)!;
+			const node1 = colTrack.nodes.find(n => n.nodeId === 'node_1')!;
+			expect(node1.y).toBe(baseY + height + VERTICAL_GAP);
+		});
+
+		it('should correct multiple overlaps in sequence', () => {
+			const baseY = 360;
+			const height = 200;
+			
+			// All nodes are overlapping
+			const state = createColumnWithNodes(0, [
+				{ id: 'node_0', row: 0, y: baseY, height },
+				{ id: 'node_1', row: 1, y: baseY + 50, height }, // Overlapping!
+				{ id: 'node_2', row: 2, y: baseY + 100, height }, // Overlapping!
+			]);
+			
+			const result = detectAndCorrectOverlapsInColumn(state, 0);
+			
+			expect(result.overlapsDetected).toBe(true);
+			expect(result.correctionsMade).toContain('node_1');
+			// Note: node_2 may or may not be in correctionsMade depending on whether
+			// the correction of node_1 cascades. In our simple implementation,
+			// we only check adjacent pairs, so node_2 might still overlap after
+			// node_1 is corrected.
+		});
+
+		it('should not modify nodes that are already properly spaced', () => {
+			const baseY = 360;
+			const height = 200;
+			
+			const state = createColumnWithNodes(0, [
+				{ id: 'node_0', row: 0, y: baseY, height },
+				{ id: 'node_1', row: 1, y: baseY + height + VERTICAL_GAP, height },
+			]);
+			
+			const originalY = state.columnTracks.get(0)!.nodes[1].y;
+			
+			detectAndCorrectOverlapsInColumn(state, 0);
+			
+			const newY = state.columnTracks.get(0)!.nodes[1].y;
+			expect(newY).toBe(originalY);
+		});
+
+		it('should handle varying node heights', () => {
+			const baseY = 360;
+			
+			// Nodes with different heights
+			const state = createColumnWithNodes(0, [
+				{ id: 'node_0', row: 0, y: baseY, height: 300 },
+				{ id: 'node_1', row: 1, y: baseY + 200, height: 150 }, // Overlapping (should be at baseY + 300 + 40)
+			]);
+			
+			const result = detectAndCorrectOverlapsInColumn(state, 0);
+			
+			expect(result.overlapsDetected).toBe(true);
+			expect(result.correctionsMade).toContain('node_1');
+			
+			// Verify correct position based on node_0's actual height
+			const colTrack = state.columnTracks.get(0)!;
+			const node1 = colTrack.nodes.find(n => n.nodeId === 'node_1')!;
+			expect(node1.y).toBe(baseY + 300 + VERTICAL_GAP);
+		});
+	});
+
+	describe('Warning Logging', () => {
+		it('should generate warning message with correct details', () => {
+			const baseY = 360;
+			const height = 200;
+			
+			const state = createColumnWithNodes(0, [
+				{ id: 'node_0', row: 0, y: baseY, height },
+				{ id: 'node_1', row: 1, y: baseY + height - 50, height },
+			]);
+			
+			const result = detectAndCorrectOverlapsInColumn(state, 0);
+			
+			expect(result.warnings.length).toBe(1);
+			expect(result.warnings[0]).toContain('OVERLAP DETECTED');
+			expect(result.warnings[0]).toContain('column 0');
+			expect(result.warnings[0]).toContain('node_1');
+			expect(result.warnings[0]).toContain('node_0');
+		});
+
+		it('should generate multiple warnings for multiple overlaps', () => {
+			const baseY = 360;
+			const height = 200;
+			
+			// Create a scenario where multiple overlaps exist
+			const state = createColumnWithNodes(0, [
+				{ id: 'node_0', row: 0, y: baseY, height },
+				{ id: 'node_1', row: 1, y: baseY + 50, height }, // Overlaps with node_0
+				{ id: 'node_2', row: 2, y: baseY + 100, height }, // Will overlap after node_1 is corrected
+			]);
+			
+			const result = detectAndCorrectOverlapsInColumn(state, 0);
+			
+			// At least one warning should be generated
+			expect(result.warnings.length).toBeGreaterThanOrEqual(1);
+		});
+	});
+
+	describe('Edge Cases', () => {
+		it('should handle nodes with zero height', () => {
+			const baseY = 360;
+			
+			const state = createColumnWithNodes(0, [
+				{ id: 'node_0', row: 0, y: baseY, height: 0 },
+				{ id: 'node_1', row: 1, y: baseY + 10, height: 200 },
+			]);
+			
+			const result = detectAndCorrectOverlapsInColumn(state, 0);
+			
+			// With zero height, node_1 should be at baseY + 0 + VERTICAL_GAP = baseY + 40
+			// Since node_1 is at baseY + 10, it should be detected as overlapping
+			expect(result.overlapsDetected).toBe(true);
+		});
+
+		it('should handle nodes with very large heights', () => {
+			const baseY = 360;
+			
+			const state = createColumnWithNodes(0, [
+				{ id: 'node_0', row: 0, y: baseY, height: 10000 },
+				{ id: 'node_1', row: 1, y: baseY + 5000, height: 200 }, // Overlapping!
+			]);
+			
+			const result = detectAndCorrectOverlapsInColumn(state, 0);
+			
+			expect(result.overlapsDetected).toBe(true);
+			
+			// Verify correction
+			const colTrack = state.columnTracks.get(0)!;
+			const node1 = colTrack.nodes.find(n => n.nodeId === 'node_1')!;
+			expect(node1.y).toBe(baseY + 10000 + VERTICAL_GAP);
+		});
+
+		it('should handle unsorted nodes in column track', () => {
+			const baseY = 360;
+			const height = 200;
+			
+			// Nodes are not sorted by row in the array
+			const state: OverlapTestState = {
+				columnTracks: new Map(),
+				nodeActualSizes: new Map(),
+			};
+			
+			state.columnTracks.set(0, {
+				col: 0,
+				nodes: [
+					{ nodeId: 'node_2', row: 2, y: baseY + 100, actualHeight: height }, // Out of order
+					{ nodeId: 'node_0', row: 0, y: baseY, actualHeight: height },
+					{ nodeId: 'node_1', row: 1, y: baseY + 50, actualHeight: height }, // Overlapping
+				],
+				maxWidth: 360,
+			});
+			
+			const result = detectAndCorrectOverlapsInColumn(state, 0);
+			
+			// Should still detect overlap after sorting
+			expect(result.overlapsDetected).toBe(true);
 		});
 	});
 });

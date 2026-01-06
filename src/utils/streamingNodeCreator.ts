@@ -8,7 +8,7 @@ import { NodeXML, GroupXML, EdgeXML } from "../types/xml.d";
 import { ParsedNode } from "./groupGenerator";
 import { AugmentedCanvasSettings } from "../settings/AugmentedCanvasSettings";
 import { gridToPixel, DEFAULT_GRID_OPTIONS } from "./coordinateSystem";
-import { getColorForType } from "./typeMapping";
+import { getColorForType, getColorForTypeWithDefault, DEFAULT_NODE_COLOR } from "./typeMapping";
 import { addEdge, calcHeight } from "../obsidian/canvas-patches";
 import { randomHexString } from "../utils";
 import { 
@@ -17,6 +17,12 @@ import {
 	getLayoutPreferences,
 	Direction
 } from "./spatialAnalyzer";
+
+/**
+ * Edge direction type for determining safe zone placement
+ * Requirements: 7.1, 7.2, 7.3
+ */
+export type EdgeDirection = 'left' | 'top' | 'right' | 'bottom';
 
 /**
  * Anchor state for pre-created groups
@@ -37,7 +43,73 @@ export interface AnchorState {
 	
 	/** Minimum col value seen (for handling negative coordinates) */
 	minColSeen: number;
+	
+	/** Direction from which the main edge connects to the group (for safe zone calculation)
+	 * Requirements: 7.1, 7.2, 7.3
+	 */
+	edgeDirection: EdgeDirection;
 }
+
+/**
+ * Information about a node's position and size in a column
+ * Used for dynamic vertical stack layout
+ * Requirements: 6.4
+ */
+export interface ColumnNodeInfo {
+	/** Semantic ID of the node */
+	nodeId: string;
+	
+	/** Row index within the column */
+	row: number;
+	
+	/** Current Y position of the node */
+	y: number;
+	
+	/** Actual rendered height of the node based on content */
+	actualHeight: number;
+}
+
+/**
+ * Tracks all nodes in a specific column for dynamic layout
+ * Requirements: 6.4, 8.2
+ */
+export interface ColumnTrack {
+	/** Column index */
+	col: number;
+	
+	/** Nodes in this column, sorted by row */
+	nodes: ColumnNodeInfo[];
+	
+	/** Maximum width of any node in this column */
+	maxWidth: number;
+}
+
+/**
+ * Tracks actual rendered sizes of nodes
+ * Requirements: 8.2
+ */
+export interface NodeActualSize {
+	/** Actual rendered width of the node */
+	width: number;
+	
+	/** Actual rendered height of the node */
+	height: number;
+}
+
+/**
+ * Layout constants for dynamic positioning
+ * Requirements: 6.4, 8.2
+ */
+export const LAYOUT_CONSTANTS = {
+	/** Minimum vertical gap between nodes in the same column (pixels) */
+	VERTICAL_GAP: 80,
+	
+	/** Minimum horizontal gap between adjacent columns (pixels) */
+	HORIZONTAL_GAP: 80,
+	
+	/** Safe zone margin for edge labels (pixels) */
+	EDGE_LABEL_SAFE_ZONE: 40,
+} as const;
 
 /**
  * Sleep utility for throttling
@@ -83,6 +155,10 @@ export class StreamingNodeCreator {
 	// Anchor state for pre-created groups (prevents layout jumping)
 	private anchorState: AnchorState | null = null;
 	
+	// Layout tracking state for dynamic positioning (Requirements: 6.4, 8.2)
+	private columnTracks: Map<number, ColumnTrack> = new Map();
+	private nodeActualSizes: Map<string, NodeActualSize> = new Map();
+	
 	constructor(
 		canvas: Canvas,
 		sourceNode: CanvasNode,
@@ -112,12 +188,21 @@ export class StreamingNodeCreator {
 	/**
 	 * Set pre-created group information (called when group is created immediately)
 	 * Now captures and locks the anchor position to prevent layout jumping
+	 * 
+	 * @param group - The pre-created group canvas node
+	 * @param semanticId - Semantic ID for the group (e.g., "g1")
+	 * @param mainEdgeId - ID of the main edge connecting source to group
+	 * @param userQuestion - User's question displayed on the edge
+	 * @param edgeDirection - Direction from which the main edge connects to the group (default: 'left')
+	 * 
+	 * Requirements: 7.1, 7.2, 7.3 - Edge Label Safe Zone
 	 */
 	public setPreCreatedGroup(
 		group: CanvasNode,
 		semanticId: string,
 		mainEdgeId: string,
-		userQuestion: string
+		userQuestion: string,
+		edgeDirection: EdgeDirection = 'left'
 	): void {
 		this.preCreatedGroup = group;
 		this.preCreatedGroupSemanticId = semanticId;
@@ -132,23 +217,43 @@ export class StreamingNodeCreator {
 		this.firstNodeOrGroup = group;
 		
 		// Lock anchor position to prevent layout jumping during streaming
+		// Store edge direction for safe zone calculation (Requirements: 7.1, 7.2, 7.3)
 		this.anchorState = {
 			anchorX: group.x,
 			anchorY: group.y,
 			anchorLocked: true,
 			minRowSeen: 0,
 			minColSeen: 0,
+			edgeDirection: edgeDirection,
 		};
 		
-		console.log(`[StreamingNodeCreator] Anchor locked at (${group.x}, ${group.y}) for group ${semanticId}`);
+		// Clear layout tracking state for fresh group (Requirements: 6.4, 8.2)
+		this.columnTracks.clear();
+		this.nodeActualSizes.clear();
+		
+		console.log(`[StreamingNodeCreator] Anchor locked at (${group.x}, ${group.y}) for group ${semanticId}, edgeDirection=${edgeDirection}`);
 	}
 	
 	/**
 	 * Calculate node position anchored to pre-created group
-	 * Uses the anchor position and grid coordinates to calculate absolute pixel position
+	 * Uses dynamic stack layout: Y position based on actual heights of nodes above
+	 * 
+	 * For row 0: y = anchorY + padding + topSafeZone
+	 * For row > 0: y = prevNode.y + prevNode.actualHeight + VERTICAL_GAP
+	 * 
+	 * This method does NOT use fixed grid height calculations. Instead, it accumulates
+	 * actual heights to ensure proper stacking without overlap.
+	 * 
+	 * Safe zones are applied based on edge direction to prevent overlap with edge labels:
+	 * - If edge connects from 'top': add topSafeZone to first row
+	 * - If edge connects from 'left': add leftSafeZone to first column
 	 * 
 	 * @param nodeXML - Node data with row/col grid coordinates
-	 * @returns Pixel coordinates anchored to group position
+	 * @returns Pixel coordinates using dynamic stack layout
+	 * 
+	 * Requirements: 6.1 - Dynamic Vertical Stack Layout
+	 * Requirements: 7.1, 7.2, 7.3, 7.4 - Edge Label Safe Zone
+	 * Requirements: 10.3 - Use accumulated heights, not fixed grid coordinates
 	 */
 	private calculateNodePositionInPreCreatedGroup(
 		nodeXML: NodeXML
@@ -160,12 +265,9 @@ export class StreamingNodeCreator {
 		}
 		
 		const padding = this.settings.groupPadding || 60;
-		const nodeWidth = this.settings.gridNodeWidth || 360;
-		const nodeHeight = this.settings.gridNodeHeight || 200;
-		const gap = this.settings.gridGap || 40;
-		
-		const cellWidth = nodeWidth + gap;
-		const cellHeight = nodeHeight + gap;
+		const defaultNodeWidth = this.settings.gridNodeWidth || 360;
+		const defaultNodeHeight = this.settings.gridNodeHeight || 200;
+		const { VERTICAL_GAP, HORIZONTAL_GAP, EDGE_LABEL_SAFE_ZONE } = LAYOUT_CONSTANTS;
 		
 		// Clamp coordinates to reasonable bounds
 		const MAX_GRID_COORD = 100;
@@ -184,17 +286,422 @@ export class StreamingNodeCreator {
 		this.anchorState.minRowSeen = Math.min(this.anchorState.minRowSeen, row);
 		this.anchorState.minColSeen = Math.min(this.anchorState.minColSeen, col);
 		
-		// Calculate position relative to anchor
 		// Normalize coordinates: if minRow is -1, row 0 becomes row 1 in calculation
 		const normalizedRow = row - this.anchorState.minRowSeen;
 		const normalizedCol = col - this.anchorState.minColSeen;
 		
-		const x = this.anchorState.anchorX + padding + (normalizedCol * cellWidth);
-		const y = this.anchorState.anchorY + padding + (normalizedRow * cellHeight);
+		// Calculate safe zones based on edge direction (Requirements: 7.1, 7.2, 7.3, 7.4)
+		// Safe zone is applied to the side where the edge connects to prevent overlap with edge labels
+		const topSafeZone = (this.anchorState.edgeDirection === 'top') ? EDGE_LABEL_SAFE_ZONE : 0;
+		const leftSafeZone = (this.anchorState.edgeDirection === 'left') ? EDGE_LABEL_SAFE_ZONE : 0;
 		
-		console.log(`[StreamingNodeCreator] Calculated position for node ${nodeXML.id}: (${x}, ${y}) from grid (${row}, ${col}), normalized (${normalizedRow}, ${normalizedCol})`);
+		// Calculate X position using dynamic column width tracking (Requirements: 8.1)
+		// Formula: x = anchorX + padding + leftSafeZone + Σ(colWidths[0..col-1] + HORIZONTAL_GAP)
+		// 
+		// For column 0: x = anchorX + padding + leftSafeZone
+		// For column N: x = anchorX + padding + leftSafeZone + Σ(colWidth[c] + HORIZONTAL_GAP) for c in [0, N-1]
+		//
+		// This ensures columns never overlap horizontally by using the maximum width
+		// of all nodes in each preceding column for spacing calculations.
+		let x = this.anchorState.anchorX + padding + leftSafeZone;
+		for (let c = 0; c < normalizedCol; c++) {
+			const colTrack = this.columnTracks.get(c);
+			const colWidth = colTrack?.maxWidth || defaultNodeWidth;
+			x += colWidth + HORIZONTAL_GAP;
+		}
+		
+		// Calculate Y position using dynamic stack layout
+		let y: number;
+		const colTrack = this.columnTracks.get(normalizedCol);
+		
+		if (normalizedRow === 0 || !colTrack || colTrack.nodes.length === 0) {
+			// First node in column: use anchor + padding + topSafeZone (if applicable)
+			y = this.anchorState.anchorY + padding + topSafeZone;
+		} else {
+			// Find the previous node in this column (node with highest row < normalizedRow)
+			const sortedNodes = [...colTrack.nodes].sort((a, b) => a.row - b.row);
+			let prevNodeInfo: ColumnNodeInfo | null = null;
+			
+			for (const nodeInfo of sortedNodes) {
+				if (nodeInfo.row < normalizedRow) {
+					prevNodeInfo = nodeInfo;
+				} else {
+					break;
+				}
+			}
+			
+			if (prevNodeInfo) {
+				// Stack below previous node using dynamic height
+				y = prevNodeInfo.y + prevNodeInfo.actualHeight + VERTICAL_GAP;
+			} else {
+				// No previous node found, use base position with topSafeZone
+				y = this.anchorState.anchorY + padding + topSafeZone;
+			}
+		}
+		
+		// Calculate initial height for this node based on content
+		const initialHeight = Math.max(
+			defaultNodeHeight,
+			calcHeight({ text: nodeXML.content })
+		);
+		
+		// Register this node in column tracking for future dynamic layout
+		this.registerNodeInColumn(nodeXML.id, normalizedCol, normalizedRow, y, initialHeight, defaultNodeWidth);
+		
+		console.log(`[StreamingNodeCreator] Calculated position for node ${nodeXML.id}: (${x}, ${y}) from grid (${row}, ${col}), normalized (${normalizedRow}, ${normalizedCol}), height=${initialHeight}, edgeDirection=${this.anchorState.edgeDirection}, topSafeZone=${topSafeZone}, leftSafeZone=${leftSafeZone}`);
 		
 		return { x, y };
+	}
+	
+	/**
+	 * Register a node in column tracking for dynamic layout
+	 * Creates column track if not exists, adds/updates node entry, sorts by row
+	 * 
+	 * Also tracks column widths for horizontal spacing calculations:
+	 * - Updates maxWidth when node is registered
+	 * - Uses actual node width if larger than default
+	 * 
+	 * @param nodeId - Semantic ID of the node
+	 * @param col - Normalized column index
+	 * @param row - Normalized row index
+	 * @param y - Current Y position
+	 * @param height - Actual rendered height
+	 * @param width - Actual rendered width
+	 * 
+	 * Requirements: 6.4 - Track actual rendered height of each node
+	 * Requirements: 8.2, 8.3 - Track column widths for horizontal spacing
+	 */
+	private registerNodeInColumn(
+		nodeId: string,
+		col: number,
+		row: number,
+		y: number,
+		height: number,
+		width: number
+	): void {
+		// Create column track if not exists
+		if (!this.columnTracks.has(col)) {
+			this.columnTracks.set(col, {
+				col,
+				nodes: [],
+				maxWidth: this.settings.gridNodeWidth || 360,
+			});
+		}
+		
+		const colTrack = this.columnTracks.get(col)!;
+		
+		// Remove existing entry for this node if any (for updates)
+		colTrack.nodes = colTrack.nodes.filter(n => n.nodeId !== nodeId);
+		
+		// Add new entry
+		colTrack.nodes.push({
+			nodeId,
+			row,
+			y,
+			actualHeight: height,
+		});
+		
+		// Sort nodes by row
+		colTrack.nodes.sort((a, b) => a.row - b.row);
+		
+		// Update max width if this node is wider (Requirements: 8.2, 8.3)
+		// Use actual node width if larger than current maxWidth
+		if (width > colTrack.maxWidth) {
+			colTrack.maxWidth = width;
+			console.log(`[StreamingNodeCreator] Column ${col} maxWidth updated to ${width} (node ${nodeId})`);
+		}
+		
+		// Also track in nodeActualSizes for width tracking during content updates
+		this.nodeActualSizes.set(nodeId, { width, height });
+	}
+	
+	/**
+	 * Reposition all nodes below a given row in the same column
+	 * Called when a node's height changes during streaming
+	 * 
+	 * Uses dynamic stack formula:
+	 * newY = prevNode.y + prevNode.actualHeight + VERTICAL_GAP
+	 * 
+	 * This method ensures nodes below the changed node are pushed down by the
+	 * correct delta to maintain the no-overlap invariant.
+	 * 
+	 * @param col - Normalized column index
+	 * @param changedRow - Row of the node that changed height
+	 * 
+	 * Requirements: 6.2 - Recalculate and reposition nodes when content grows
+	 * Requirements: 10.1, 10.2 - Real-time reflow on content growth
+	 * Requirements: 10.3 - Use accumulated heights for Y-positioning
+	 */
+	private async repositionNodesInColumn(
+		col: number,
+		changedRow: number
+	): Promise<void> {
+		const colTrack = this.columnTracks.get(col);
+		if (!colTrack || colTrack.nodes.length === 0) {
+			return; // No nodes in this column
+		}
+		
+		const { VERTICAL_GAP } = LAYOUT_CONSTANTS;
+		const sortedNodes = [...colTrack.nodes].sort((a, b) => a.row - b.row);
+		
+		// Track previous node's position and height for stacking
+		let prevY = 0;
+		let prevHeight = 0;
+		let needsUpdate = false;
+		
+		for (const nodeInfo of sortedNodes) {
+			if (nodeInfo.row <= changedRow) {
+				// For nodes at or before the changed row, just track their position
+				prevY = nodeInfo.y;
+				prevHeight = nodeInfo.actualHeight;
+				continue;
+			}
+			
+			// Calculate new Y position based on previous node using accumulated heights
+			// Formula: Y = prevNode.y + prevNode.actualHeight + VERTICAL_GAP
+			// This ensures proper stacking without overlap (Requirements: 10.3)
+			const newY = prevY + prevHeight + VERTICAL_GAP;
+			
+			// Check if position actually changed (more than 1 pixel difference)
+			const oldY = nodeInfo.y;
+			if (Math.abs(oldY - newY) > 1) {
+				needsUpdate = true;
+				
+				// Update the canvas node position
+				const canvasNode = this.createdNodeMap.get(nodeInfo.nodeId);
+				if (canvasNode && canvasNode.x !== undefined) {
+					canvasNode.setData({ y: newY });
+					
+					// Update our tracking AFTER logging the old value
+					console.log(`[StreamingNodeCreator] Repositioned node ${nodeInfo.nodeId} from y=${oldY} to y=${newY} (delta=${newY - oldY})`);
+					
+					nodeInfo.y = newY;
+					
+					// Also update nodePositions map
+					const existingPos = this.nodePositions.get(nodeInfo.nodeId);
+					if (existingPos) {
+						this.nodePositions.set(nodeInfo.nodeId, { x: existingPos.x, y: newY });
+					}
+				}
+			}
+			
+			// Update tracking for next iteration using the (potentially updated) position
+			prevY = nodeInfo.y;
+			prevHeight = nodeInfo.actualHeight;
+		}
+		
+		// Batch all position updates into a single animation frame (Requirements: 10.4, 10.5)
+		// Only call requestFrame once at the end to minimize reflow operations
+		if (needsUpdate) {
+			await this.canvas.requestFrame();
+			
+			// After repositioning, detect and correct any remaining overlaps
+			// Requirements: 11.3 - Detect and correct overlaps before rendering
+			await this.detectAndCorrectOverlapsInColumn(col);
+		}
+	}
+	
+	/**
+	 * Detect and correct any overlapping nodes in a column
+	 * 
+	 * This method validates that no nodes overlap after repositioning and
+	 * corrects any overlaps by pushing nodes down if detected.
+	 * 
+	 * An overlap occurs when:
+	 * nodeB.y < nodeA.y + nodeA.actualHeight + VERTICAL_GAP
+	 * (where nodeA.row < nodeB.row)
+	 * 
+	 * @param col - Column index to check for overlaps
+	 * @returns true if overlaps were detected and corrected, false otherwise
+	 * 
+	 * Requirements: 11.3 - Detect and correct overlaps before rendering
+	 */
+	private async detectAndCorrectOverlapsInColumn(col: number): Promise<boolean> {
+		const colTrack = this.columnTracks.get(col);
+		if (!colTrack || colTrack.nodes.length < 2) {
+			return false; // Need at least 2 nodes to have an overlap
+		}
+		
+		const { VERTICAL_GAP } = LAYOUT_CONSTANTS;
+		const sortedNodes = [...colTrack.nodes].sort((a, b) => a.row - b.row);
+		
+		let overlapsDetected = false;
+		let correctionsMade = false;
+		
+		// Check each pair of adjacent nodes for overlap
+		for (let i = 0; i < sortedNodes.length - 1; i++) {
+			const nodeA = sortedNodes[i];
+			const nodeB = sortedNodes[i + 1];
+			
+			// Calculate the minimum Y position for nodeB to avoid overlap
+			const minYForNodeB = nodeA.y + nodeA.actualHeight + VERTICAL_GAP;
+			
+			// Check if nodeB overlaps with nodeA (with 1px tolerance)
+			if (nodeB.y < minYForNodeB - 1) {
+				overlapsDetected = true;
+				
+				console.warn(
+					`[StreamingNodeCreator] OVERLAP DETECTED in column ${col}: ` +
+					`Node ${nodeB.nodeId} (y=${nodeB.y}) overlaps with node ${nodeA.nodeId} ` +
+					`(bottom=${nodeA.y + nodeA.actualHeight}). ` +
+					`Minimum Y should be ${minYForNodeB}. Correcting...`
+				);
+				
+				// Correct the overlap by pushing nodeB down
+				const canvasNode = this.createdNodeMap.get(nodeB.nodeId);
+				if (canvasNode && canvasNode.x !== undefined) {
+					canvasNode.setData({ y: minYForNodeB });
+					nodeB.y = minYForNodeB;
+					
+					// Update nodePositions map
+					const existingPos = this.nodePositions.get(nodeB.nodeId);
+					if (existingPos) {
+						this.nodePositions.set(nodeB.nodeId, { x: existingPos.x, y: minYForNodeB });
+					}
+					
+					correctionsMade = true;
+					
+					console.log(
+						`[StreamingNodeCreator] Corrected overlap: Node ${nodeB.nodeId} moved to y=${minYForNodeB}`
+					);
+				}
+			}
+		}
+		
+		// If corrections were made, request a frame update
+		if (correctionsMade) {
+			await this.canvas.requestFrame();
+		}
+		
+		return overlapsDetected;
+	}
+	
+	/**
+	 * Detect and correct overlaps in all columns
+	 * 
+	 * This method iterates through all tracked columns and checks for overlaps,
+	 * correcting any that are found. Useful for validation after batch operations.
+	 * 
+	 * @returns Object containing detection results for each column
+	 * 
+	 * Requirements: 11.3 - Detect and correct overlaps before rendering
+	 */
+	public async detectAndCorrectAllOverlaps(): Promise<{ columnsChecked: number; overlapsFound: number }> {
+		let columnsChecked = 0;
+		let overlapsFound = 0;
+		
+		for (const [col] of this.columnTracks) {
+			columnsChecked++;
+			const hadOverlaps = await this.detectAndCorrectOverlapsInColumn(col);
+			if (hadOverlaps) {
+				overlapsFound++;
+			}
+		}
+		
+		if (overlapsFound > 0) {
+			console.warn(
+				`[StreamingNodeCreator] Overlap detection complete: ` +
+				`${overlapsFound} column(s) with overlaps out of ${columnsChecked} checked`
+			);
+		}
+		
+		return { columnsChecked, overlapsFound };
+	}
+	
+	/**
+	 * Update the tracked height for a node and trigger repositioning if needed
+	 * Called when node content changes during streaming
+	 * 
+	 * This method implements the real-time reflow behavior:
+	 * 1. Immediately recalculates the actual rendered height of the node
+	 * 2. Immediately pushes down all nodes below it in the same column by the height delta
+	 * 
+	 * @param nodeId - Semantic ID of the node
+	 * @param newHeight - New actual height of the node
+	 * @returns The column and row of the node if found, null otherwise
+	 * 
+	 * Requirements: 6.2, 6.4 - Track and respond to height changes
+	 * Requirements: 10.1 - Immediately recalculate actual rendered height
+	 * Requirements: 10.2 - Immediately push down all nodes below
+	 */
+	private async updateNodeHeightAndReposition(
+		nodeId: string,
+		newHeight: number
+	): Promise<{ col: number; row: number } | null> {
+		// Find the node in column tracks
+		for (const [col, colTrack] of this.columnTracks.entries()) {
+			const nodeInfo = colTrack.nodes.find(n => n.nodeId === nodeId);
+			if (nodeInfo) {
+				const oldHeight = nodeInfo.actualHeight;
+				const heightDelta = newHeight - oldHeight;
+				
+				// Only reposition if height actually changed significantly (Requirements: 10.1)
+				if (Math.abs(heightDelta) > 1) {
+					// Update the tracked height immediately
+					nodeInfo.actualHeight = newHeight;
+					
+					// Update nodeActualSizes
+					const existingSize = this.nodeActualSizes.get(nodeId);
+					if (existingSize) {
+						this.nodeActualSizes.set(nodeId, { width: existingSize.width, height: newHeight });
+					}
+					
+					console.log(`[StreamingNodeCreator] Node ${nodeId} height changed from ${oldHeight} to ${newHeight} (delta=${heightDelta}), triggering reflow in column ${col}`);
+					
+					// Immediately reposition nodes below this one (Requirements: 10.2)
+					// This pushes down all nodes below by the height delta
+					await this.repositionNodesInColumn(col, nodeInfo.row);
+				}
+				
+				return { col, row: nodeInfo.row };
+			}
+		}
+		
+		return null;
+	}
+	
+	/**
+	 * Update the tracked width for a node and update column maxWidth if needed
+	 * Called when node content changes during streaming
+	 * 
+	 * @param nodeId - Semantic ID of the node
+	 * @param newWidth - New actual width of the node
+	 * @returns true if column maxWidth was updated, false otherwise
+	 * 
+	 * Requirements: 8.2 - Track actual width for column spacing calculations
+	 */
+	private updateNodeWidthTracking(
+		nodeId: string,
+		newWidth: number
+	): boolean {
+		// Update nodeActualSizes with new width
+		const existingSize = this.nodeActualSizes.get(nodeId);
+		if (existingSize) {
+			// Only update if width actually changed
+			if (Math.abs(existingSize.width - newWidth) > 1) {
+				this.nodeActualSizes.set(nodeId, { width: newWidth, height: existingSize.height });
+				
+				// Find the column this node belongs to and update maxWidth if needed
+				for (const [col, colTrack] of this.columnTracks.entries()) {
+					const nodeInfo = colTrack.nodes.find(n => n.nodeId === nodeId);
+					if (nodeInfo) {
+						// Update column maxWidth if this node is now wider
+						if (newWidth > colTrack.maxWidth) {
+							const oldMaxWidth = colTrack.maxWidth;
+							colTrack.maxWidth = newWidth;
+							console.log(`[StreamingNodeCreator] Column ${col} maxWidth updated from ${oldMaxWidth} to ${newWidth} (node ${nodeId} width changed)`);
+							return true;
+						}
+						break;
+					}
+				}
+			}
+		} else {
+			// Node not yet tracked, add it
+			this.nodeActualSizes.set(nodeId, { width: newWidth, height: this.settings.gridNodeHeight || 200 });
+		}
+		
+		return false;
 	}
 
 	/**
@@ -246,7 +753,17 @@ export class StreamingNodeCreator {
 	 * Only text and height are updated, NOT x/y coordinates.
 	 * This ensures node position stability under streaming (Property 3).
 	 * 
+	 * When height changes, triggers repositioning of nodes below in the same column
+	 * to maintain dynamic stack layout (Property 6, 7).
+	 * 
+	 * Real-Time Reflow Behavior (Requirements 10.1, 10.2):
+	 * 1. When content grows, immediately recalculates the actual rendered height
+	 * 2. Immediately pushes down all nodes below in the same column by the height delta
+	 * 3. Updates are batched within a single animation frame to prevent visual stuttering
+	 * 
 	 * Requirements: 5.2 - Position preservation during content updates
+	 * Requirements: 6.2 - Recalculate and reposition nodes when content grows
+	 * Requirements: 10.1, 10.2 - Real-time reflow on content growth
 	 */
 	async updatePartialNode(nodeXML: NodeXML): Promise<void> {
 		const node = this.createdNodeMap.get(nodeXML.id);
@@ -255,20 +772,25 @@ export class StreamingNodeCreator {
 			// If node exists, update its text and height if it changed
 			// CRITICAL: Do NOT update x/y coordinates - position must remain stable
 			if (node.text !== nodeXML.content) {
-				// Capture current position before any updates
+				// Capture current position and dimensions before any updates
 				const currentX = node.x;
 				const currentY = node.y;
+				const oldHeight = node.height;
+				const oldWidth = node.width;
 				
 				// Update text content only
 				node.setText(nodeXML.content);
 				
-				// Recalculate height based on new content to ensure group fits
+				// Immediately recalculate height based on new content (Requirements: 10.1)
+				// This ensures we detect height changes as soon as content grows
 				const newHeight = Math.max(
 					this.settings.gridNodeHeight || 200,
 					calcHeight({ text: nodeXML.content })
 				);
 				
-				if (Math.abs(node.height - newHeight) > 1) {
+				const heightChanged = Math.abs(oldHeight - newHeight) > 1;
+				
+				if (heightChanged) {
 					// Update height only, explicitly preserve x/y position
 					node.setData({ 
 						height: newHeight,
@@ -276,6 +798,19 @@ export class StreamingNodeCreator {
 						x: currentX,
 						y: currentY
 					});
+					
+					// Immediately trigger repositioning of nodes below this one (Requirements: 10.2)
+					// This pushes down all nodes below by the height delta
+					// The repositioning is batched within a single animation frame (Requirements: 10.4, 10.5)
+					await this.updateNodeHeightAndReposition(nodeXML.id, newHeight);
+				}
+				
+				// Track width changes for column spacing calculations (Requirements 8.2)
+				// After content update, check if the node's actual width changed
+				// This ensures column maxWidth is updated if node content causes width increase
+				const newWidth = node.width;
+				if (Math.abs(oldWidth - newWidth) > 1) {
+					this.updateNodeWidthTracking(nodeXML.id, newWidth);
 				}
 				
 				// If node is in a group, update group bounds
@@ -513,8 +1048,9 @@ export class StreamingNodeCreator {
 				pixelPos = this.calculatePositionFromRelations(nodeXML.id);
 			}
 			
-			// Get color based on type
-			const color = getColorForType(nodeXML.type);
+			// Get color based on type, with guaranteed non-null result for visual clarity
+			// Requirements: 11.1 - All created nodes must have a solid background color
+			const color = getColorForTypeWithDefault(nodeXML.type);
 			
 			// Create text node on canvas
 			const newNode = this.canvas.createTextNode({
@@ -528,10 +1064,9 @@ export class StreamingNodeCreator {
 				focus: false,
 			});
 			
-			// Apply color if specified
-			if (color) {
-				newNode.setData({ color });
-			}
+			// Apply color - always set since getColorForTypeWithDefault guarantees a value
+			// Requirements: 11.1 - Ensure all created nodes have a solid background color
+			newNode.setData({ color });
 			
 			this.canvas.addNode(newNode);
 			
@@ -665,7 +1200,9 @@ export class StreamingNodeCreator {
 					isQuadrantLayout
 				);
 				
-				const color = getColorForType(nodeXML.type);
+				// Get color based on type, with guaranteed non-null result for visual clarity
+				// Requirements: 11.1 - All created nodes must have a solid background color
+				const color = getColorForTypeWithDefault(nodeXML.type);
 				const nodeId = randomHexString(16);
 				
 				groupNodes.push({
@@ -676,7 +1213,7 @@ export class StreamingNodeCreator {
 					y: nodePixelPos.y,
 					width: this.settings.gridNodeWidth || 360,
 					height: this.settings.gridNodeHeight || 200,
-					color: color || undefined,
+					color: color, // Always set - getColorForTypeWithDefault guarantees a value
 				});
 				
 				// Store mapping for edge creation (using semantic ID)
@@ -876,12 +1413,19 @@ export class StreamingNodeCreator {
 	/**
 	 * Update group bounds while preserving anchor position
 	 * 
-	 * This method implements anchor-based bounds expansion:
-	 * - For positive coordinates: only expand width/height, keep anchor (x, y) fixed
-	 * - For negative coordinates: shift anchor and reposition all existing nodes
-	 * - Maintains 2-pixel tolerance for minor adjustments
+	 * CRITICAL: This method implements anchor immutability during streaming.
+	 * The group's x and y coordinates are NEVER modified during streaming.
+	 * Only width and height can change to expand the group downward and rightward.
 	 * 
-	 * Requirements: 3.1, 3.2, 3.3
+	 * This prevents the "jitter" effect where the group visually vibrates during streaming
+	 * because the group was trying to re-center itself on every token update.
+	 * 
+	 * For negative coordinates: nodes are repositioned within the existing anchor bounds,
+	 * but the anchor itself remains immutable. This is a design decision to prioritize
+	 * visual stability over perfect layout for edge cases.
+	 * 
+	 * Requirements: 9.1, 9.2, 9.3, 9.4 - Anchor Stabilization During Streaming
+	 * Requirements: 3.1, 3.2, 3.3 - Group Bounds Dynamic Expansion
 	 */
 	private async updateGroupBoundsPreservingAnchor(
 		groupId: string,
@@ -895,6 +1439,10 @@ export class StreamingNodeCreator {
 		
 		const groupNode = this.preCreatedGroup;
 		
+		// CRITICAL: Capture original anchor position for immutability assertion
+		const originalAnchorX = this.anchorState.anchorX;
+		const originalAnchorY = this.anchorState.anchorY;
+		
 		// Calculate the bounding box of all member nodes
 		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
@@ -905,54 +1453,97 @@ export class StreamingNodeCreator {
 			maxY = Math.max(maxY, node.y + node.height);
 		});
 		
-		// Calculate required bounds with padding
-		const requiredX = minX - padding;
-		const requiredY = minY - padding;
-		const requiredWidth = maxX - minX + padding * 2;
-		const requiredHeight = maxY - minY + padding * 2;
+		// If no valid nodes, nothing to do
+		if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) {
+			return;
+		}
 		
-		// Check if nodes extend beyond the anchor point (negative coordinate scenario)
-		const needsAnchorShiftX = requiredX < this.anchorState.anchorX - 2; // 2-pixel tolerance
-		const needsAnchorShiftY = requiredY < this.anchorState.anchorY - 2; // 2-pixel tolerance
+		// CRITICAL: Calculate new dimensions - group can only GROW downward and rightward
+		// The anchor (x, y) is IMMUTABLE during streaming - only width/height can change
+		// 
+		// This ensures:
+		// - No jitter/jumping during streaming (Requirements 9.1, 9.2)
+		// - Group expands to fit content (Requirements 3.1)
+		// - Anchor position is preserved exactly (Requirements 9.3, 9.4)
+		const newWidth = Math.max(
+			groupNode.width,
+			maxX - originalAnchorX + padding
+		);
+		const newHeight = Math.max(
+			groupNode.height,
+			maxY - originalAnchorY + padding
+		);
 		
-		if (needsAnchorShiftX || needsAnchorShiftY) {
-			// Negative coordinates detected - need to shift anchor and reposition nodes
-			await this.shiftAnchorAndRepositionNodes(
-				groupId,
-				memberNodes,
-				requiredX,
-				requiredY,
-				requiredWidth,
-				requiredHeight,
-				padding
-			);
-		} else {
-			// Positive coordinates only - just expand width/height, preserve anchor position
-			const newWidth = Math.max(
-				groupNode.width,
-				maxX - this.anchorState.anchorX + padding
-			);
-			const newHeight = Math.max(
-				groupNode.height,
-				maxY - this.anchorState.anchorY + padding
-			);
+		// Only update if dimensions changed significantly (2-pixel tolerance)
+		const widthChanged = Math.abs(groupNode.width - newWidth) > 2;
+		const heightChanged = Math.abs(groupNode.height - newHeight) > 2;
+		
+		if (widthChanged || heightChanged) {
+			// CRITICAL: Only update width and height - NEVER x or y
+			// This is the key fix for the jitter issue
+			groupNode.setData({
+				width: newWidth,
+				height: newHeight
+				// x and y are intentionally NOT included - anchor is immutable during streaming
+			});
 			
-			// Only update if dimensions changed significantly (2-pixel tolerance)
-			const widthChanged = Math.abs(groupNode.width - newWidth) > 2;
-			const heightChanged = Math.abs(groupNode.height - newHeight) > 2;
+			await this.canvas.requestFrame();
 			
-			if (widthChanged || heightChanged) {
-				// Keep anchor position fixed, only update dimensions
-				groupNode.setData({
-					x: this.anchorState.anchorX,
-					y: this.anchorState.anchorY,
-					width: newWidth,
-					height: newHeight
-				});
-				
-				await this.canvas.requestFrame();
-				
-				console.log(`[StreamingNodeCreator] Expanded group bounds: width=${newWidth}, height=${newHeight} (anchor preserved at ${this.anchorState.anchorX}, ${this.anchorState.anchorY})`);
+			console.log(`[StreamingNodeCreator] Expanded group bounds: width=${newWidth}, height=${newHeight} (anchor immutable at ${originalAnchorX}, ${originalAnchorY})`);
+		}
+		
+		// CRITICAL: Verify anchor immutability assertion (Requirements 9.1)
+		// This is a debug assertion to detect any anchor drift
+		this.assertAnchorImmutability(originalAnchorX, originalAnchorY, groupNode);
+	}
+	
+	/**
+	 * Assert that anchor position has not changed during streaming
+	 * 
+	 * This is a debug assertion to detect any anchor drift that would cause
+	 * visual jitter. If drift is detected, a warning is logged but the
+	 * operation continues (fail-safe behavior).
+	 * 
+	 * Requirements: 9.1 - Anchor Stabilization During Streaming
+	 * 
+	 * @param expectedX - Expected anchor X position
+	 * @param expectedY - Expected anchor Y position
+	 * @param groupNode - The group canvas node to check
+	 */
+	private assertAnchorImmutability(
+		expectedX: number,
+		expectedY: number,
+		groupNode: CanvasNode
+	): void {
+		const actualX = groupNode.x;
+		const actualY = groupNode.y;
+		
+		// Check for any drift (exact match required, no tolerance)
+		const driftX = Math.abs(actualX - expectedX);
+		const driftY = Math.abs(actualY - expectedY);
+		
+		if (driftX > 0 || driftY > 0) {
+			console.warn(
+				`[StreamingNodeCreator] ANCHOR DRIFT DETECTED! ` +
+				`Expected (${expectedX}, ${expectedY}), ` +
+				`Actual (${actualX}, ${actualY}), ` +
+				`Drift: (${driftX}, ${driftY}). ` +
+				`This may cause visual jitter during streaming.`
+			);
+		}
+		
+		// Also verify anchorState matches
+		if (this.anchorState) {
+			const anchorStateDriftX = Math.abs(this.anchorState.anchorX - expectedX);
+			const anchorStateDriftY = Math.abs(this.anchorState.anchorY - expectedY);
+			
+			if (anchorStateDriftX > 0 || anchorStateDriftY > 0) {
+				console.warn(
+					`[StreamingNodeCreator] ANCHOR STATE DRIFT DETECTED! ` +
+					`Expected (${expectedX}, ${expectedY}), ` +
+					`AnchorState (${this.anchorState.anchorX}, ${this.anchorState.anchorY}), ` +
+					`Drift: (${anchorStateDriftX}, ${anchorStateDriftY}).`
+				);
 			}
 		}
 	}

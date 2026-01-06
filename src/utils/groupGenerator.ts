@@ -1,4 +1,3 @@
-import { App } from "obsidian";
 import { Canvas, CanvasNode } from "../obsidian/canvas-internal";
 import { randomHexString } from "../utils";
 import { addEdge, CanvasEdgeIntermediate } from "../obsidian/canvas-patches";

@@ -16,6 +16,13 @@ export type NodeType =
 	| "question";  // 问题/待办
 
 /**
+ * Default node color for nodes without a type-specific color
+ * Used to ensure all nodes have a solid background for visual clarity
+ * Requirements: 11.1 - All created nodes must have a solid background color
+ */
+export const DEFAULT_NODE_COLOR = "0"; // Gray/default color in Obsidian Canvas
+
+/**
  * Type to Color mapping table
  * Based on PRD v2.0 Section 2.2
  */
@@ -51,6 +58,20 @@ export function getColorForType(type: string | undefined): string | null {
 	// Fallback to default for unknown types
 	console.warn(`[TypeMapping] Unknown node type: "${type}", using default color`);
 	return null;
+}
+
+/**
+ * Get Obsidian color code for a given node type, with guaranteed non-null result
+ * Always returns a valid color code to ensure nodes have solid backgrounds
+ * 
+ * Requirements: 11.1 - All created nodes must have a solid background color
+ * 
+ * @param type - Node type string
+ * @returns Obsidian color code (never null)
+ */
+export function getColorForTypeWithDefault(type: string | undefined): string {
+	const color = getColorForType(type);
+	return color ?? DEFAULT_NODE_COLOR;
 }
 
 /**

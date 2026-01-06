@@ -8,7 +8,7 @@ import { IncrementalMarkdownParser } from "../../utils/groupGenerator";
 import { isGroup, buildGroupContext } from "../../utils/groupUtils";
 import { randomHexString } from "../../utils";
 import { IncrementalXMLParser } from "../../utils/incrementalXMLParser";
-import { StreamingNodeCreator } from "../../utils/streamingNodeCreator";
+import { StreamingNodeCreator, EdgeDirection } from "../../utils/streamingNodeCreator";
 import { analyzeBestDirection, calculatePositionInDirection, getLayoutPreferences } from "../../utils/spatialAnalyzer";
 import { logDebug } from "../../logDebug";
 
@@ -371,8 +371,10 @@ export async function generateGroupWithAI(
 		
 		// Set pre-created group information
 		// Use a semantic ID for the group (will be matched when AI generates <group id="...">)
+		// Pass edge direction for safe zone calculation (Requirements: 7.1, 7.2, 7.3)
 		const preCreatedGroupSemanticId = "g1"; // Default semantic ID for the first group
-		nodeCreator.setPreCreatedGroup(groupNode, preCreatedGroupSemanticId, mainEdgeId, userQuestion || "");
+		const edgeDirection: EdgeDirection = toSide as EdgeDirection; // Edge connects TO the group from this side
+		nodeCreator.setPreCreatedGroup(groupNode, preCreatedGroupSemanticId, mainEdgeId, userQuestion || "", edgeDirection);
 		
 		let accumulatedResponse = "";
 		let lastNodeUpdate = Date.now();
