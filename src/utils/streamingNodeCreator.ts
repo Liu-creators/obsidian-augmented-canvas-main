@@ -1,6 +1,14 @@
 /**
  * Streaming Node Creator
  * Manages real-time creation of canvas nodes during AI response streaming
+ *
+ * 重构说明：
+ * - 使用 groupGeneration/config.ts 中的配置常量
+ * - 使用 groupGeneration/layoutEngine.ts 中的布局计算函数
+ * - 使用 groupGeneration/types.ts 中的类型定义
+ * - 保持向后兼容的 API
+ *
+ * Requirements: 1.1, 1.2, 5.10 - 架构分离和配置使用
  */
 
 import { CanvasNode, Canvas } from "../obsidian/canvas-internal";
@@ -8,133 +16,61 @@ import { NodeXML, GroupXML, EdgeXML } from "../types/xml.d";
 import { ParsedNode } from "./groupGenerator";
 import { AugmentedCanvasSettings } from "../settings/AugmentedCanvasSettings";
 import { gridToPixel, DEFAULT_GRID_OPTIONS } from "./coordinateSystem";
-import { getColorForType, getColorForTypeWithDefault, DEFAULT_NODE_COLOR } from "./typeMapping";
+import { getColorForTypeWithDefault } from "./typeMapping";
 import { addEdge, calcHeight } from "../obsidian/canvas-patches";
 import { randomHexString } from "../utils";
-import { 
-	analyzeBestDirection, 
-	calculatePositionInDirection, 
+import {
+	analyzeBestDirection,
+	calculatePositionInDirection,
 	getLayoutPreferences,
-	Direction
 } from "./spatialAnalyzer";
 
-/**
- * Edge direction type for determining safe zone placement
- * Requirements: 7.1, 7.2, 7.3
- */
-export type EdgeDirection = 'left' | 'top' | 'right' | 'bottom';
+// 从新模块导入配置和类型
+// Requirements: 5.10 - 布局计算使用配置管理器中的常量
+import {
+	LAYOUT_CONSTANTS,
+	GroupGenerationConfig,
+	createConfigFromSettings,
+	EdgeDirection,
+} from "./groupGeneration/config";
 
-/**
- * Anchor state for pre-created groups
- * Used to maintain stable positioning during streaming
- */
-export interface AnchorState {
-	/** Original X position of the pre-created group */
-	anchorX: number;
-	
-	/** Original Y position of the pre-created group */
-	anchorY: number;
-	
-	/** Whether the anchor has been locked (set when group is created) */
-	anchorLocked: boolean;
-	
-	/** Minimum row value seen (for handling negative coordinates) */
-	minRowSeen: number;
-	
-	/** Minimum col value seen (for handling negative coordinates) */
-	minColSeen: number;
-	
-	/** Direction from which the main edge connects to the group (for safe zone calculation)
-	 * Requirements: 7.1, 7.2, 7.3
-	 */
-	edgeDirection: EdgeDirection;
-}
+// 从新模块导入布局引擎函数
+// Requirements: 3.1, 3.2, 3.3, 3.4 - 布局逻辑提取为纯函数
+import {
+	calculateNodePosition as layoutCalculateNodePosition,
+	registerNodeInColumn as layoutRegisterNodeInColumn,
+	calculateRepositioning,
+	detectOverlaps,
+	calculateGroupBounds,
+	normalizeCoordinates,
+	calculateSafeZones,
+} from "./groupGeneration/layoutEngine";
 
-/**
- * Information about a node's position and size in a column
- * Used for dynamic vertical stack layout
- * Requirements: 6.4
- */
-export interface ColumnNodeInfo {
-	/** Semantic ID of the node */
-	nodeId: string;
-	
-	/** Row index within the column */
-	row: number;
-	
-	/** Current Y position of the node */
-	y: number;
-	
-	/** Actual rendered height of the node based on content */
-	actualHeight: number;
-}
+// 从新模块导入类型定义
+// Requirements: 9.1, 9.3, 9.4 - 类型安全增强
+import {
+	AnchorState,
+	ColumnTrack,
+	ColumnNodeInfo,
+	NodeActualSize,
+} from "./groupGeneration/types";
 
-/**
- * Tracks all nodes in a specific column for dynamic layout
- * Requirements: 6.4, 8.2
- */
-export interface ColumnTrack {
-	/** Column index */
-	col: number;
-	
-	/** Nodes in this column, sorted by row */
-	nodes: ColumnNodeInfo[];
-	
-	/** Maximum width of any node in this column */
-	maxWidth: number;
-}
+// 重新导出类型以保持向后兼容性
+// Requirements: 1.2 - 保持向后兼容的 API
+export type { EdgeDirection, AnchorState, ColumnTrack, ColumnNodeInfo, NodeActualSize };
 
-/**
- * Tracks actual rendered sizes of nodes
- * Requirements: 8.2
- */
-export interface NodeActualSize {
-	/** Actual rendered width of the node */
-	width: number;
-	
-	/** Actual rendered height of the node */
-	height: number;
-}
-
-/**
- * Layout constants for dynamic positioning
- * Requirements: 6.4, 8.2, 12.5
- */
-export const LAYOUT_CONSTANTS = {
-	/** Minimum vertical gap between nodes in the same column (pixels) */
-	VERTICAL_GAP: 80,
-	
-	/** Minimum horizontal gap between adjacent columns (pixels) */
-	HORIZONTAL_GAP: 80,
-	
-	/** Safe zone margin for edge labels (pixels) */
-	EDGE_LABEL_SAFE_ZONE: 40,
-	
-	/** Height of group title bar/header area (pixels)
-	 * Requirements: 12.5 - GROUP_HEADER_HEIGHT SHALL be at least 40 pixels
-	 */
-	GROUP_HEADER_HEIGHT: 40,
-	
-	/** Top padding inside the group below the header (pixels)
-	 * Requirements: 12.5
-	 */
-	PADDING_TOP: 80,
-	
-	/** Bottom padding inside the group (pixels)
-	 * Requirements: 12.5
-	 */
-	PADDING_BOTTOM: 20,
-} as const;
-
-/**
- * Sleep utility for throttling
- */
-function sleep(ms: number): Promise<void> {
-	return new Promise(resolve => setTimeout(resolve, ms));
-}
+// 重新导出 LAYOUT_CONSTANTS 以保持向后兼容性
+export { LAYOUT_CONSTANTS };
 
 /**
  * Manages streaming creation of nodes and edges
+ *
+ * 重构说明：
+ * - 使用 GroupGenerationConfig 替代内联常量
+ * - 使用 layoutEngine 中的纯函数进行布局计算
+ * - 保持向后兼容的 API
+ *
+ * Requirements: 1.1, 1.2, 5.10 - 架构分离和配置使用
  */
 export class StreamingNodeCreator {
 	private createdNodeMap: Map<string, CanvasNode>;
@@ -143,7 +79,11 @@ export class StreamingNodeCreator {
 	private sourceNode: CanvasNode;
 	private settings: AugmentedCanvasSettings;
 	private nodeCounter: number = 0;
-	
+
+	// 配置对象 - 从设置创建
+	// Requirements: 5.10 - 布局计算使用配置管理器中的常量
+	private config: GroupGenerationConfig;
+
 	// New fields for relationship-driven layout
 	private firstNodeOrGroup: CanvasNode | null = null; // First created node or group
 	private edgeRelations: Map<string, string[]> = new Map(); // from -> to[] mapping
@@ -152,7 +92,7 @@ export class StreamingNodeCreator {
 	private mainEdgeId: string | null = null; // Main edge ID
 	private userQuestion: string = ""; // User question
 	private createdEdges: Set<string> = new Set(); // Track created edges to avoid duplicates
-	
+
 	// New fields for dependency-aware node creation
 	private pendingNodes: Map<string, NodeXML> = new Map(); // Store pending nodes
 	private nodeDependencies: Map<string, string[]> = new Map(); // Store node dependencies (connected nodes via edges)
@@ -160,20 +100,20 @@ export class StreamingNodeCreator {
 	private creatingNodes: Set<string> = new Set(); // Track nodes currently being created (to avoid circular dependencies)
 	private groupMembers: Map<string, string[]> = new Map(); // Group ID -> Node IDs mapping
 	private nodeToGroup: Map<string, string> = new Map(); // Node ID -> Group ID mapping
-	
+
 	// Pre-created group support
 	private preCreatedGroup: CanvasNode | null = null; // Pre-created group node
 	private preCreatedGroupSemanticId: string | null = null; // Semantic ID for pre-created group
 	private preCreatedGroupMainEdgeId: string | null = null; // Main edge ID for pre-created group
 	private preCreatedGroupUserQuestion: string = ""; // User question for pre-created group
-	
+
 	// Anchor state for pre-created groups (prevents layout jumping)
 	private anchorState: AnchorState | null = null;
-	
+
 	// Layout tracking state for dynamic positioning (Requirements: 6.4, 8.2)
 	private columnTracks: Map<number, ColumnTrack> = new Map();
 	private nodeActualSizes: Map<string, NodeActualSize> = new Map();
-	
+
 	constructor(
 		canvas: Canvas,
 		sourceNode: CanvasNode,
@@ -184,8 +124,12 @@ export class StreamingNodeCreator {
 		this.settings = settings;
 		this.createdNodeMap = new Map();
 		this.pendingEdges = [];
+
+		// 从设置创建配置对象
+		// Requirements: 5.10 - 布局计算使用配置管理器中的常量
+		this.config = createConfigFromSettings(settings);
 	}
-	
+
 	/**
 	 * Set placeholder and main edge information (called at streaming start)
 	 * @deprecated Use setPreCreatedGroup instead for immediate group creation
@@ -199,17 +143,17 @@ export class StreamingNodeCreator {
 		this.mainEdgeId = mainEdgeId;
 		this.userQuestion = userQuestion;
 	}
-	
+
 	/**
 	 * Set pre-created group information (called when group is created immediately)
 	 * Now captures and locks the anchor position to prevent layout jumping
-	 * 
+	 *
 	 * @param group - The pre-created group canvas node
 	 * @param semanticId - Semantic ID for the group (e.g., "g1")
 	 * @param mainEdgeId - ID of the main edge connecting source to group
 	 * @param userQuestion - User's question displayed on the edge
 	 * @param edgeDirection - Direction from which the main edge connects to the group (default: 'left')
-	 * 
+	 *
 	 * Requirements: 7.1, 7.2, 7.3 - Edge Label Safe Zone
 	 */
 	public setPreCreatedGroup(
@@ -217,20 +161,20 @@ export class StreamingNodeCreator {
 		semanticId: string,
 		mainEdgeId: string,
 		userQuestion: string,
-		edgeDirection: EdgeDirection = 'left'
+		edgeDirection: EdgeDirection = "left"
 	): void {
 		this.preCreatedGroup = group;
 		this.preCreatedGroupSemanticId = semanticId;
 		this.preCreatedGroupMainEdgeId = mainEdgeId;
 		this.preCreatedGroupUserQuestion = userQuestion;
-		
+
 		// Store the group in the createdNodeMap using semantic ID
 		this.createdNodeMap.set(semanticId, group);
 		this.groupMembers.set(semanticId, []);
-		
+
 		// Mark as first node/group for edge redirection (no need to redirect since edge already exists)
 		this.firstNodeOrGroup = group;
-		
+
 		// Lock anchor position to prevent layout jumping during streaming
 		// Store edge direction for safe zone calculation (Requirements: 7.1, 7.2, 7.3)
 		this.anchorState = {
@@ -241,164 +185,143 @@ export class StreamingNodeCreator {
 			minColSeen: 0,
 			edgeDirection: edgeDirection,
 		};
-		
+
 		// Clear layout tracking state for fresh group (Requirements: 6.4, 8.2)
 		this.columnTracks.clear();
 		this.nodeActualSizes.clear();
-		
+
 		console.log(`[StreamingNodeCreator] Anchor locked at (${group.x}, ${group.y}) for group ${semanticId}, edgeDirection=${edgeDirection}`);
 	}
-	
+
 	/**
 	 * Calculate node position anchored to pre-created group
 	 * Uses dynamic stack layout: Y position based on actual heights of nodes above
-	 * 
+	 *
 	 * For row 0: y = anchorY + padding + topSafeZone
 	 * For row > 0: y = prevNode.y + prevNode.actualHeight + VERTICAL_GAP
-	 * 
+	 *
 	 * This method does NOT use fixed grid height calculations. Instead, it accumulates
 	 * actual heights to ensure proper stacking without overlap.
-	 * 
+	 *
 	 * Safe zones are applied based on edge direction to prevent overlap with edge labels:
 	 * - If edge connects from 'top': add topSafeZone to first row
 	 * - If edge connects from 'left': add leftSafeZone to first column
-	 * 
+	 *
 	 * CRITICAL (Requirement 12): The first node must clear the group header.
 	 * Formula for first row: y = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone
 	 * This ensures the first node is positioned below the group's title bar from the
 	 * very first render cycle, preventing content from clipping out of the top border.
-	 * 
+	 *
 	 * @param nodeXML - Node data with row/col grid coordinates
 	 * @returns Pixel coordinates using dynamic stack layout
-	 * 
+	 *
 	 * Requirements: 6.1 - Dynamic Vertical Stack Layout
 	 * Requirements: 7.1, 7.2, 7.3, 7.4 - Edge Label Safe Zone
 	 * Requirements: 10.3 - Use accumulated heights, not fixed grid coordinates
 	 * Requirements: 12.1, 12.2, 12.6 - Group Header Height Clearance
+	 *
+	 * 重构说明：使用 layoutEngine.calculateNodePosition 进行布局计算
+	 * Requirements: 3.1, 3.2, 3.3, 3.4 - 布局逻辑提取为纯函数
 	 */
 	private calculateNodePositionInPreCreatedGroup(
 		nodeXML: NodeXML
 	): { x: number; y: number } {
 		if (!this.anchorState || !this.preCreatedGroup) {
 			// Fallback to existing behavior if no anchor
-			console.warn('[StreamingNodeCreator] No anchor state, falling back to spatial analysis');
+			console.warn("[StreamingNodeCreator] No anchor state, falling back to spatial analysis");
 			return this.calculatePositionFromRelations(nodeXML.id);
 		}
-		
-		const padding = this.settings.groupPadding || 40;
-		const defaultNodeWidth = this.settings.gridNodeWidth || 360;
-		const defaultNodeHeight = this.settings.gridNodeHeight || 200;
-		const { VERTICAL_GAP, HORIZONTAL_GAP, EDGE_LABEL_SAFE_ZONE, GROUP_HEADER_HEIGHT, PADDING_TOP } = LAYOUT_CONSTANTS;
-		
+
+		// 使用配置中的常量
+		// Requirements: 5.10 - 布局计算使用配置管理器中的常量
+		const { maxGridCoord, nodeWidth: defaultNodeWidth, nodeHeight: defaultNodeHeight } = this.config;
+
 		// Clamp coordinates to reasonable bounds
-		const MAX_GRID_COORD = 100;
-		const row = Math.max(-MAX_GRID_COORD, Math.min(MAX_GRID_COORD, nodeXML.row || 0));
-		const col = Math.max(-MAX_GRID_COORD, Math.min(MAX_GRID_COORD, nodeXML.col || 0));
-		
+		const row = Math.max(-maxGridCoord, Math.min(maxGridCoord, nodeXML.row || 0));
+		const col = Math.max(-maxGridCoord, Math.min(maxGridCoord, nodeXML.col || 0));
+
 		// Log warning for out-of-range values
-		if (nodeXML.row !== undefined && (nodeXML.row < -MAX_GRID_COORD || nodeXML.row > MAX_GRID_COORD)) {
+		if (nodeXML.row !== undefined && (nodeXML.row < -maxGridCoord || nodeXML.row > maxGridCoord)) {
 			console.warn(`[StreamingNodeCreator] Row value ${nodeXML.row} clamped to ${row}`);
 		}
-		if (nodeXML.col !== undefined && (nodeXML.col < -MAX_GRID_COORD || nodeXML.col > MAX_GRID_COORD)) {
+		if (nodeXML.col !== undefined && (nodeXML.col < -maxGridCoord || nodeXML.col > maxGridCoord)) {
 			console.warn(`[StreamingNodeCreator] Col value ${nodeXML.col} clamped to ${col}`);
 		}
-		
+
 		// Track minimum coordinates for potential anchor adjustment
 		this.anchorState.minRowSeen = Math.min(this.anchorState.minRowSeen, row);
 		this.anchorState.minColSeen = Math.min(this.anchorState.minColSeen, col);
-		
-		// Normalize coordinates: if minRow is -1, row 0 becomes row 1 in calculation
-		const normalizedRow = row - this.anchorState.minRowSeen;
-		const normalizedCol = col - this.anchorState.minColSeen;
-		
-		// Calculate safe zones based on edge direction (Requirements: 7.1, 7.2, 7.3, 7.4)
-		// Safe zone is applied to the side where the edge connects to prevent overlap with edge labels
-		const topSafeZone = (this.anchorState.edgeDirection === 'top') ? EDGE_LABEL_SAFE_ZONE : 0;
-		const leftSafeZone = (this.anchorState.edgeDirection === 'left') ? EDGE_LABEL_SAFE_ZONE : 0;
-		
-		// Calculate X position using dynamic column width tracking (Requirements: 8.1)
-		// Formula: x = anchorX + padding + leftSafeZone + Σ(colWidths[0..col-1] + HORIZONTAL_GAP)
-		// 
-		// For column 0: x = anchorX + padding + leftSafeZone
-		// For column N: x = anchorX + padding + leftSafeZone + Σ(colWidth[c] + HORIZONTAL_GAP) for c in [0, N-1]
-		//
-		// This ensures columns never overlap horizontally by using the maximum width
-		// of all nodes in each preceding column for spacing calculations.
-		let x = this.anchorState.anchorX + padding + leftSafeZone;
-		for (let c = 0; c < normalizedCol; c++) {
-			const colTrack = this.columnTracks.get(c);
-			const colWidth = colTrack?.maxWidth || defaultNodeWidth;
-			x += colWidth + HORIZONTAL_GAP;
-		}
-		
-		// Calculate Y position using dynamic stack layout
-		// CRITICAL (Requirement 12): First row must clear the group header
-		// Formula for first row: y = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone
-		// This ensures the first node is positioned below the group's title bar
-		// from the very first render cycle (immediately on first token arrival)
-		let y: number;
-		const colTrack = this.columnTracks.get(normalizedCol);
-		
-		if (normalizedRow === 0 || !colTrack || colTrack.nodes.length === 0) {
-			// First node in column: MUST clear group header + padding + safe zone
-			// Formula: y = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone
-			// This ensures the first node is positioned below the group's title bar
-			// Requirements: 12.1, 12.2, 12.6
-			y = this.anchorState.anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone;
-		} else {
-			// Find the previous node in this column (node with highest row < normalizedRow)
-			const sortedNodes = [...colTrack.nodes].sort((a, b) => a.row - b.row);
-			let prevNodeInfo: ColumnNodeInfo | null = null;
-			
-			for (const nodeInfo of sortedNodes) {
-				if (nodeInfo.row < normalizedRow) {
-					prevNodeInfo = nodeInfo;
-				} else {
-					break;
-				}
-			}
-			
-			if (prevNodeInfo) {
-				// Stack below previous node using dynamic height
-				y = prevNodeInfo.y + prevNodeInfo.actualHeight + VERTICAL_GAP;
-			} else {
-				// No previous node found, use base position with header clearance
-				// Requirements: 12.1, 12.2, 12.6
-				y = this.anchorState.anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone;
-			}
-		}
-		
+
+		// 使用 layoutEngine 中的纯函数计算位置
+		// Requirements: 3.1, 3.2, 3.3, 3.4 - 布局逻辑提取为纯函数
+		const position = layoutCalculateNodePosition(
+			nodeXML.id,
+			row,
+			col,
+			this.anchorState,
+			this.columnTracks,
+			this.config
+		);
+
 		// Calculate initial height for this node based on content
 		const initialHeight = Math.max(
 			defaultNodeHeight,
 			calcHeight({ text: nodeXML.content })
 		);
-		
+
+		// 使用标准化坐标进行列追踪注册
+		const { normalizedRow, normalizedCol } = normalizeCoordinates(
+			row,
+			col,
+			this.anchorState.minRowSeen,
+			this.anchorState.minColSeen,
+			maxGridCoord
+		);
+
 		// Register this node in column tracking for future dynamic layout
-		this.registerNodeInColumn(nodeXML.id, normalizedCol, normalizedRow, y, initialHeight, defaultNodeWidth);
-		
-		console.log(`[StreamingNodeCreator] Calculated position for node ${nodeXML.id}: (${x}, ${y}) from grid (${row}, ${col}), normalized (${normalizedRow}, ${normalizedCol}), height=${initialHeight}, edgeDirection=${this.anchorState.edgeDirection}, topSafeZone=${topSafeZone}, leftSafeZone=${leftSafeZone}, headerClearance=${GROUP_HEADER_HEIGHT + PADDING_TOP}`);
-		
-		return { x, y };
+		// 使用 layoutEngine 中的函数
+		layoutRegisterNodeInColumn(
+			nodeXML.id,
+			normalizedCol,
+			normalizedRow,
+			position.y,
+			initialHeight,
+			defaultNodeWidth,
+			this.columnTracks,
+			defaultNodeWidth
+		);
+
+		// 计算安全区域用于日志
+		const { topSafeZone, leftSafeZone } = calculateSafeZones(
+			this.anchorState.edgeDirection,
+			this.config.edgeLabelSafeZone
+		);
+
+		console.log(`[StreamingNodeCreator] Calculated position for node ${nodeXML.id}: (${position.x}, ${position.y}) from grid (${row}, ${col}), normalized (${normalizedRow}, ${normalizedCol}), height=${initialHeight}, edgeDirection=${this.anchorState.edgeDirection}, topSafeZone=${topSafeZone}, leftSafeZone=${leftSafeZone}, headerClearance=${this.config.groupHeaderHeight + this.config.paddingTop}`);
+
+		return position;
 	}
-	
+
 	/**
 	 * Register a node in column tracking for dynamic layout
 	 * Creates column track if not exists, adds/updates node entry, sorts by row
-	 * 
+	 *
 	 * Also tracks column widths for horizontal spacing calculations:
 	 * - Updates maxWidth when node is registered
 	 * - Uses actual node width if larger than default
-	 * 
+	 *
 	 * @param nodeId - Semantic ID of the node
 	 * @param col - Normalized column index
 	 * @param row - Normalized row index
 	 * @param y - Current Y position
 	 * @param height - Actual rendered height
 	 * @param width - Actual rendered width
-	 * 
+	 *
 	 * Requirements: 6.4 - Track actual rendered height of each node
 	 * Requirements: 8.2, 8.3 - Track column widths for horizontal spacing
+	 *
+	 * 重构说明：此方法现在委托给 layoutEngine.registerNodeInColumn
+	 * Requirements: 3.5, 3.6 - 动态高度追踪
 	 */
 	private registerNodeInColumn(
 		nodeId: string,
@@ -408,58 +331,48 @@ export class StreamingNodeCreator {
 		height: number,
 		width: number
 	): void {
-		// Create column track if not exists
-		if (!this.columnTracks.has(col)) {
-			this.columnTracks.set(col, {
-				col,
-				nodes: [],
-				maxWidth: this.settings.gridNodeWidth || 360,
-			});
-		}
-		
-		const colTrack = this.columnTracks.get(col)!;
-		
-		// Remove existing entry for this node if any (for updates)
-		colTrack.nodes = colTrack.nodes.filter(n => n.nodeId !== nodeId);
-		
-		// Add new entry
-		colTrack.nodes.push({
+		// 使用 layoutEngine 中的函数进行列追踪注册
+		// Requirements: 3.5, 3.6 - 动态高度追踪
+		layoutRegisterNodeInColumn(
 			nodeId,
+			col,
 			row,
 			y,
-			actualHeight: height,
-		});
-		
-		// Sort nodes by row
-		colTrack.nodes.sort((a, b) => a.row - b.row);
-		
-		// Update max width if this node is wider (Requirements: 8.2, 8.3)
-		// Use actual node width if larger than current maxWidth
-		if (width > colTrack.maxWidth) {
-			colTrack.maxWidth = width;
+			height,
+			width,
+			this.columnTracks,
+			this.config.nodeWidth
+		);
+
+		// 检查是否更新了列宽（用于日志）
+		const colTrack = this.columnTracks.get(col);
+		if (colTrack && width > colTrack.maxWidth) {
 			console.log(`[StreamingNodeCreator] Column ${col} maxWidth updated to ${width} (node ${nodeId})`);
 		}
-		
+
 		// Also track in nodeActualSizes for width tracking during content updates
 		this.nodeActualSizes.set(nodeId, { width, height });
 	}
-	
+
 	/**
 	 * Reposition all nodes below a given row in the same column
 	 * Called when a node's height changes during streaming
-	 * 
+	 *
 	 * Uses dynamic stack formula:
 	 * newY = prevNode.y + prevNode.actualHeight + VERTICAL_GAP
-	 * 
+	 *
 	 * This method ensures nodes below the changed node are pushed down by the
 	 * correct delta to maintain the no-overlap invariant.
-	 * 
+	 *
 	 * @param col - Normalized column index
 	 * @param changedRow - Row of the node that changed height
-	 * 
+	 *
 	 * Requirements: 6.2 - Recalculate and reposition nodes when content grows
 	 * Requirements: 10.1, 10.2 - Real-time reflow on content growth
 	 * Requirements: 10.3 - Use accumulated heights for Y-positioning
+	 *
+	 * 重构说明：使用 layoutEngine.calculateRepositioning 计算位置更新
+	 * Requirements: 3.5, 3.6 - 动态高度堆叠
 	 */
 	private async repositionNodesInColumn(
 		col: number,
@@ -469,156 +382,131 @@ export class StreamingNodeCreator {
 		if (!colTrack || colTrack.nodes.length === 0) {
 			return; // No nodes in this column
 		}
-		
-		const { VERTICAL_GAP } = LAYOUT_CONSTANTS;
-		const sortedNodes = [...colTrack.nodes].sort((a, b) => a.row - b.row);
-		
-		// Track previous node's position and height for stacking
-		let prevY = 0;
-		let prevHeight = 0;
-		let needsUpdate = false;
-		
-		for (const nodeInfo of sortedNodes) {
-			if (nodeInfo.row <= changedRow) {
-				// For nodes at or before the changed row, just track their position
-				prevY = nodeInfo.y;
-				prevHeight = nodeInfo.actualHeight;
-				continue;
-			}
-			
-			// Calculate new Y position based on previous node using accumulated heights
-			// Formula: Y = prevNode.y + prevNode.actualHeight + VERTICAL_GAP
-			// This ensures proper stacking without overlap (Requirements: 10.3)
-			const newY = prevY + prevHeight + VERTICAL_GAP;
-			
-			// Check if position actually changed (more than 1 pixel difference)
-			const oldY = nodeInfo.y;
-			if (Math.abs(oldY - newY) > 1) {
-				needsUpdate = true;
-				
-				// Update the canvas node position
-				const canvasNode = this.createdNodeMap.get(nodeInfo.nodeId);
-				if (canvasNode && canvasNode.x !== undefined) {
-					canvasNode.setData({ y: newY });
-					
-					// Update our tracking AFTER logging the old value
-					console.log(`[StreamingNodeCreator] Repositioned node ${nodeInfo.nodeId} from y=${oldY} to y=${newY} (delta=${newY - oldY})`);
-					
-					nodeInfo.y = newY;
-					
-					// Also update nodePositions map
-					const existingPos = this.nodePositions.get(nodeInfo.nodeId);
-					if (existingPos) {
-						this.nodePositions.set(nodeInfo.nodeId, { x: existingPos.x, y: newY });
-					}
+
+		// 使用 layoutEngine 中的纯函数计算重新定位
+		// Requirements: 3.5, 3.6 - 动态高度堆叠
+		const updates = calculateRepositioning(col, changedRow, this.columnTracks, this.config);
+
+		if (updates.length === 0) {
+			return; // No updates needed
+		}
+
+		// Apply position updates to canvas nodes
+		for (const update of updates) {
+			const canvasNode = this.createdNodeMap.get(update.nodeId);
+			if (canvasNode && canvasNode.x !== undefined) {
+				// 获取旧位置用于日志
+				const nodeInfo = colTrack.nodes.find(n => n.nodeId === update.nodeId);
+				const oldY = nodeInfo?.y ?? 0;
+
+				canvasNode.setData({ y: update.newY });
+
+				console.log(`[StreamingNodeCreator] Repositioned node ${update.nodeId} from y=${oldY} to y=${update.newY} (delta=${update.newY - oldY})`);
+
+				// Update column tracking
+				if (nodeInfo) {
+					nodeInfo.y = update.newY;
+				}
+
+				// Also update nodePositions map
+				const existingPos = this.nodePositions.get(update.nodeId);
+				if (existingPos) {
+					this.nodePositions.set(update.nodeId, { x: existingPos.x, y: update.newY });
 				}
 			}
-			
-			// Update tracking for next iteration using the (potentially updated) position
-			prevY = nodeInfo.y;
-			prevHeight = nodeInfo.actualHeight;
 		}
-		
+
 		// Batch all position updates into a single animation frame (Requirements: 10.4, 10.5)
 		// Only call requestFrame once at the end to minimize reflow operations
-		if (needsUpdate) {
-			await this.canvas.requestFrame();
-			
-			// After repositioning, detect and correct any remaining overlaps
-			// Requirements: 11.3 - Detect and correct overlaps before rendering
-			await this.detectAndCorrectOverlapsInColumn(col);
-		}
+		await this.canvas.requestFrame();
+
+		// After repositioning, detect and correct any remaining overlaps
+		// Requirements: 11.3 - Detect and correct overlaps before rendering
+		await this.detectAndCorrectOverlapsInColumn(col);
 	}
-	
+
 	/**
 	 * Detect and correct any overlapping nodes in a column
-	 * 
+	 *
 	 * This method validates that no nodes overlap after repositioning and
 	 * corrects any overlaps by pushing nodes down if detected.
-	 * 
+	 *
 	 * An overlap occurs when:
 	 * nodeB.y < nodeA.y + nodeA.actualHeight + VERTICAL_GAP
 	 * (where nodeA.row < nodeB.row)
-	 * 
+	 *
 	 * @param col - Column index to check for overlaps
 	 * @returns true if overlaps were detected and corrected, false otherwise
-	 * 
+	 *
 	 * Requirements: 11.3 - Detect and correct overlaps before rendering
+	 *
+	 * 重构说明：使用 layoutEngine.detectOverlaps 检测重叠
+	 * Requirements: 7.2 - 无重叠不变量
 	 */
 	private async detectAndCorrectOverlapsInColumn(col: number): Promise<boolean> {
 		const colTrack = this.columnTracks.get(col);
 		if (!colTrack || colTrack.nodes.length < 2) {
 			return false; // Need at least 2 nodes to have an overlap
 		}
-		
-		const { VERTICAL_GAP } = LAYOUT_CONSTANTS;
-		const sortedNodes = [...colTrack.nodes].sort((a, b) => a.row - b.row);
-		
-		let overlapsDetected = false;
-		let correctionsMade = false;
-		
-		// Check each pair of adjacent nodes for overlap
-		for (let i = 0; i < sortedNodes.length - 1; i++) {
-			const nodeA = sortedNodes[i];
-			const nodeB = sortedNodes[i + 1];
-			
-			// Calculate the minimum Y position for nodeB to avoid overlap
-			const minYForNodeB = nodeA.y + nodeA.actualHeight + VERTICAL_GAP;
-			
-			// Check if nodeB overlaps with nodeA (with 1px tolerance)
-			if (nodeB.y < minYForNodeB - 1) {
-				overlapsDetected = true;
-				
-				console.warn(
-					`[StreamingNodeCreator] OVERLAP DETECTED in column ${col}: ` +
-					`Node ${nodeB.nodeId} (y=${nodeB.y}) overlaps with node ${nodeA.nodeId} ` +
-					`(bottom=${nodeA.y + nodeA.actualHeight}). ` +
-					`Minimum Y should be ${minYForNodeB}. Correcting...`
-				);
-				
-				// Correct the overlap by pushing nodeB down
-				const canvasNode = this.createdNodeMap.get(nodeB.nodeId);
-				if (canvasNode && canvasNode.x !== undefined) {
-					canvasNode.setData({ y: minYForNodeB });
-					nodeB.y = minYForNodeB;
-					
-					// Update nodePositions map
-					const existingPos = this.nodePositions.get(nodeB.nodeId);
-					if (existingPos) {
-						this.nodePositions.set(nodeB.nodeId, { x: existingPos.x, y: minYForNodeB });
-					}
-					
-					correctionsMade = true;
-					
-					console.log(
-						`[StreamingNodeCreator] Corrected overlap: Node ${nodeB.nodeId} moved to y=${minYForNodeB}`
-					);
+
+		// 使用 layoutEngine 中的纯函数检测重叠
+		// Requirements: 7.2 - 无重叠不变量
+		const corrections = detectOverlaps(col, this.columnTracks, this.config);
+
+		if (corrections.length === 0) {
+			return false;
+		}
+
+		// Apply corrections
+		for (const correction of corrections) {
+			console.warn(
+				`[StreamingNodeCreator] OVERLAP DETECTED in column ${col}: ` +
+				`Node ${correction.nodeId} needs correction to y=${correction.correctedY}`
+			);
+
+			// Correct the overlap by pushing node down
+			const canvasNode = this.createdNodeMap.get(correction.nodeId);
+			if (canvasNode && canvasNode.x !== undefined) {
+				canvasNode.setData({ y: correction.correctedY });
+
+				// Update column tracking
+				const nodeInfo = colTrack.nodes.find(n => n.nodeId === correction.nodeId);
+				if (nodeInfo) {
+					nodeInfo.y = correction.correctedY;
 				}
+
+				// Update nodePositions map
+				const existingPos = this.nodePositions.get(correction.nodeId);
+				if (existingPos) {
+					this.nodePositions.set(correction.nodeId, { x: existingPos.x, y: correction.correctedY });
+				}
+
+				console.log(
+					`[StreamingNodeCreator] Corrected overlap: Node ${correction.nodeId} moved to y=${correction.correctedY}`
+				);
 			}
 		}
-		
-		// If corrections were made, request a frame update
-		if (correctionsMade) {
-			await this.canvas.requestFrame();
-		}
-		
-		return overlapsDetected;
+
+		// Request a frame update after corrections
+		await this.canvas.requestFrame();
+
+		return true;
 	}
-	
+
 	/**
 	 * Detect and correct overlaps in all columns
-	 * 
+	 *
 	 * This method iterates through all tracked columns and checks for overlaps,
 	 * correcting any that are found. Useful for validation after batch operations.
-	 * 
+	 *
 	 * @returns Object containing detection results for each column
-	 * 
+	 *
 	 * Requirements: 11.3 - Detect and correct overlaps before rendering
 	 */
 	public async detectAndCorrectAllOverlaps(): Promise<{ columnsChecked: number; overlapsFound: number }> {
 		let columnsChecked = 0;
 		let overlapsFound = 0;
-		
+
 		for (const [col] of this.columnTracks) {
 			columnsChecked++;
 			const hadOverlaps = await this.detectAndCorrectOverlapsInColumn(col);
@@ -626,29 +514,29 @@ export class StreamingNodeCreator {
 				overlapsFound++;
 			}
 		}
-		
+
 		if (overlapsFound > 0) {
 			console.warn(
-				`[StreamingNodeCreator] Overlap detection complete: ` +
+				"[StreamingNodeCreator] Overlap detection complete: " +
 				`${overlapsFound} column(s) with overlaps out of ${columnsChecked} checked`
 			);
 		}
-		
+
 		return { columnsChecked, overlapsFound };
 	}
-	
+
 	/**
 	 * Update the tracked height for a node and trigger repositioning if needed
 	 * Called when node content changes during streaming
-	 * 
+	 *
 	 * This method implements the real-time reflow behavior:
 	 * 1. Immediately recalculates the actual rendered height of the node
 	 * 2. Immediately pushes down all nodes below it in the same column by the height delta
-	 * 
+	 *
 	 * @param nodeId - Semantic ID of the node
 	 * @param newHeight - New actual height of the node
 	 * @returns The column and row of the node if found, null otherwise
-	 * 
+	 *
 	 * Requirements: 6.2, 6.4 - Track and respond to height changes
 	 * Requirements: 10.1 - Immediately recalculate actual rendered height
 	 * Requirements: 10.2 - Immediately push down all nodes below
@@ -663,40 +551,40 @@ export class StreamingNodeCreator {
 			if (nodeInfo) {
 				const oldHeight = nodeInfo.actualHeight;
 				const heightDelta = newHeight - oldHeight;
-				
+
 				// Only reposition if height actually changed significantly (Requirements: 10.1)
 				if (Math.abs(heightDelta) > 1) {
 					// Update the tracked height immediately
 					nodeInfo.actualHeight = newHeight;
-					
+
 					// Update nodeActualSizes
 					const existingSize = this.nodeActualSizes.get(nodeId);
 					if (existingSize) {
 						this.nodeActualSizes.set(nodeId, { width: existingSize.width, height: newHeight });
 					}
-					
+
 					console.log(`[StreamingNodeCreator] Node ${nodeId} height changed from ${oldHeight} to ${newHeight} (delta=${heightDelta}), triggering reflow in column ${col}`);
-					
+
 					// Immediately reposition nodes below this one (Requirements: 10.2)
 					// This pushes down all nodes below by the height delta
 					await this.repositionNodesInColumn(col, nodeInfo.row);
 				}
-				
+
 				return { col, row: nodeInfo.row };
 			}
 		}
-		
+
 		return null;
 	}
-	
+
 	/**
 	 * Update the tracked width for a node and update column maxWidth if needed
 	 * Called when node content changes during streaming
-	 * 
+	 *
 	 * @param nodeId - Semantic ID of the node
 	 * @param newWidth - New actual width of the node
 	 * @returns true if column maxWidth was updated, false otherwise
-	 * 
+	 *
 	 * Requirements: 8.2 - Track actual width for column spacing calculations
 	 */
 	private updateNodeWidthTracking(
@@ -709,7 +597,7 @@ export class StreamingNodeCreator {
 			// Only update if width actually changed
 			if (Math.abs(existingSize.width - newWidth) > 1) {
 				this.nodeActualSizes.set(nodeId, { width: newWidth, height: existingSize.height });
-				
+
 				// Find the column this node belongs to and update maxWidth if needed
 				for (const [col, colTrack] of this.columnTracks.entries()) {
 					const nodeInfo = colTrack.nodes.find(n => n.nodeId === nodeId);
@@ -729,18 +617,18 @@ export class StreamingNodeCreator {
 			// Node not yet tracked, add it
 			this.nodeActualSizes.set(nodeId, { width: newWidth, height: this.settings.gridNodeHeight || 200 });
 		}
-		
+
 		return false;
 	}
 
 	/**
 	 * Create a node from XML format
 	 * Now uses dependency-aware creation: creates related nodes first, then edges, then the node itself
-	 * 
+	 *
 	 * Detects pre-created group context and routes to anchor-based positioning when:
 	 * - nodeXML.groupId matches preCreatedGroupSemanticId
 	 * - anchorState is available
-	 * 
+	 *
 	 * Requirements: 2.1 - Relative Node Positioning Within Group
 	 */
 	async createNodeFromXML(nodeXML: NodeXML): Promise<CanvasNode | null> {
@@ -748,28 +636,28 @@ export class StreamingNodeCreator {
 		if (!this.createdNodeIds.has(nodeXML.id)) {
 			this.pendingNodes.set(nodeXML.id, nodeXML);
 		}
-		
+
 		// Detect pre-created group context for anchor-based positioning
 		const isInPreCreatedGroup = this.isNodeInPreCreatedGroup(nodeXML);
 		if (isInPreCreatedGroup) {
 			console.log(`[StreamingNodeCreator] Node ${nodeXML.id} detected in pre-created group context, will use anchor-based positioning`);
 		}
-		
+
 		// Use dependency-aware creation (which will route to anchor-based positioning if in pre-created group)
 		return await this.createNodeWithDependencies(nodeXML);
 	}
-	
+
 	/**
 	 * Check if a node belongs to the pre-created group context
 	 * Used to determine whether to use anchor-based positioning
-	 * 
+	 *
 	 * @param nodeXML - Node data with optional groupId
 	 * @returns true if node should use anchor-based positioning
 	 */
 	private isNodeInPreCreatedGroup(nodeXML: NodeXML): boolean {
 		return !!(
-			nodeXML.groupId && 
-			this.preCreatedGroup && 
+			nodeXML.groupId &&
+			this.preCreatedGroup &&
 			this.preCreatedGroupSemanticId === nodeXML.groupId &&
 			this.anchorState
 		);
@@ -777,26 +665,26 @@ export class StreamingNodeCreator {
 
 	/**
 	 * Update an existing node with partial content during streaming
-	 * 
+	 *
 	 * IMPORTANT: This method preserves node position during content updates.
 	 * Only text and height are updated, NOT x/y coordinates.
 	 * This ensures node position stability under streaming (Property 3).
-	 * 
+	 *
 	 * When height changes, triggers repositioning of nodes below in the same column
 	 * to maintain dynamic stack layout (Property 6, 7).
-	 * 
+	 *
 	 * Real-Time Reflow Behavior (Requirements 10.1, 10.2):
 	 * 1. When content grows, immediately recalculates the actual rendered height
 	 * 2. Immediately pushes down all nodes below in the same column by the height delta
 	 * 3. Updates are batched within a single animation frame to prevent visual stuttering
-	 * 
+	 *
 	 * Requirements: 5.2 - Position preservation during content updates
 	 * Requirements: 6.2 - Recalculate and reposition nodes when content grows
 	 * Requirements: 10.1, 10.2 - Real-time reflow on content growth
 	 */
 	async updatePartialNode(nodeXML: NodeXML): Promise<void> {
 		const node = this.createdNodeMap.get(nodeXML.id);
-		
+
 		if (node) {
 			// If node exists, update its text and height if it changed
 			// CRITICAL: Do NOT update x/y coordinates - position must remain stable
@@ -806,34 +694,36 @@ export class StreamingNodeCreator {
 				const currentY = node.y;
 				const oldHeight = node.height;
 				const oldWidth = node.width;
-				
+
 				// Update text content only
 				node.setText(nodeXML.content);
-				
+
 				// Immediately recalculate height based on new content (Requirements: 10.1)
 				// This ensures we detect height changes as soon as content grows
+				// 使用配置中的常量
+				// Requirements: 5.10 - 布局计算使用配置管理器中的常量
 				const newHeight = Math.max(
-					this.settings.gridNodeHeight || 200,
+					this.config.nodeHeight,
 					calcHeight({ text: nodeXML.content })
 				);
-				
+
 				const heightChanged = Math.abs(oldHeight - newHeight) > 1;
-				
+
 				if (heightChanged) {
 					// Update height only, explicitly preserve x/y position
-					node.setData({ 
+					node.setData({
 						height: newHeight,
 						// Explicitly set x/y to current values to prevent any drift
 						x: currentX,
 						y: currentY
 					});
-					
+
 					// Immediately trigger repositioning of nodes below this one (Requirements: 10.2)
 					// This pushes down all nodes below by the height delta
 					// The repositioning is batched within a single animation frame (Requirements: 10.4, 10.5)
 					await this.updateNodeHeightAndReposition(nodeXML.id, newHeight);
 				}
-				
+
 				// Track width changes for column spacing calculations (Requirements 8.2)
 				// After content update, check if the node's actual width changed
 				// This ensures column maxWidth is updated if node content causes width increase
@@ -841,14 +731,14 @@ export class StreamingNodeCreator {
 				if (Math.abs(oldWidth - newWidth) > 1) {
 					this.updateNodeWidthTracking(nodeXML.id, newWidth);
 				}
-				
+
 				// If node is in a group, update group bounds
 				// Note: updateGroupBounds will expand the group if needed but won't move this node
 				const groupId = this.nodeToGroup.get(nodeXML.id);
 				if (groupId) {
 					await this.updateGroupBounds(groupId);
 				}
-				
+
 				// Verify position was preserved (debug logging)
 				if (Math.abs(node.x - currentX) > 0.1 || Math.abs(node.y - currentY) > 0.1) {
 					console.warn(`[StreamingNodeCreator] Position drift detected for node ${nodeXML.id}: was (${currentX}, ${currentY}), now (${node.x}, ${node.y})`);
@@ -865,9 +755,9 @@ export class StreamingNodeCreator {
 	 */
 	async updatePartialGroup(groupXML: GroupXML): Promise<void> {
 		// Check if this is the pre-created group
-		const isPreCreatedGroup = this.preCreatedGroup && 
+		const isPreCreatedGroup = this.preCreatedGroup &&
 			this.preCreatedGroupSemanticId === groupXML.id;
-		
+
 		if (isPreCreatedGroup && this.preCreatedGroup) {
 			// Update pre-created group title if changed
 			const data = this.preCreatedGroup.getData();
@@ -876,9 +766,9 @@ export class StreamingNodeCreator {
 			}
 			return;
 		}
-		
+
 		const groupNode = this.createdNodeMap.get(groupXML.id);
-		
+
 		if (groupNode) {
 			// If group exists, maybe update title if it changed
 			const data = groupNode.getData();
@@ -890,7 +780,7 @@ export class StreamingNodeCreator {
 			await this.createPartialGroupDirectly(groupXML);
 		}
 	}
-	
+
 	/**
 	 * Update group title
 	 */
@@ -900,13 +790,13 @@ export class StreamingNodeCreator {
 			console.warn(`[StreamingNodeCreator] Group not found for title update: ${groupSemanticId}`);
 			return;
 		}
-		
+
 		const data = groupNode.getData();
 		if (data.type !== "group") {
 			console.warn(`[StreamingNodeCreator] Node is not a group: ${groupSemanticId}`);
 			return;
 		}
-		
+
 		if (data.label !== newTitle) {
 			groupNode.setData({ label: newTitle });
 			await this.canvas.requestFrame();
@@ -949,7 +839,7 @@ export class StreamingNodeCreator {
 			if (groupNode) {
 				this.createdNodeMap.set(groupXML.id, groupNode);
 				this.groupMembers.set(groupXML.id, []);
-				
+
 				if (!this.firstNodeOrGroup) {
 					this.firstNodeOrGroup = groupNode;
 					await this.redirectMainEdge();
@@ -959,13 +849,13 @@ export class StreamingNodeCreator {
 			console.error(`[StreamingNodeCreator] Failed to create partial group ${groupXML.id}:`, error);
 		}
 	}
-	
+
 	/**
 	 * Find nodes that are connected to the given node via edges
 	 */
 	private findNodeDependencies(nodeId: string): string[] {
 		const dependencies: string[] = [];
-		
+
 		// Check all pending edges
 		for (const edge of this.pendingEdges) {
 			if (edge.from === nodeId) {
@@ -981,10 +871,10 @@ export class StreamingNodeCreator {
 				}
 			}
 		}
-		
+
 		return dependencies;
 	}
-	
+
 	/**
 	 * Create a node with its dependencies first
 	 * Order: 1. Dependencies (related nodes), 2. Edges, 3. Current node
@@ -995,19 +885,19 @@ export class StreamingNodeCreator {
 			console.warn(`[StreamingNodeCreator] Circular dependency detected for node ${nodeXML.id}, creating node directly`);
 			return await this.createNodeDirectly(nodeXML);
 		}
-		
+
 		// If already created, return it
 		if (this.createdNodeIds.has(nodeXML.id)) {
 			return this.createdNodeMap.get(nodeXML.id) || null;
 		}
-		
+
 		// Mark as being created
 		this.creatingNodes.add(nodeXML.id);
-		
+
 		try {
 			// Step 1: Find dependencies (nodes connected via edges)
 			const dependencies = this.findNodeDependencies(nodeXML.id);
-			
+
 			// Step 2: Create dependency nodes first (if they exist and haven't been created)
 			for (const depId of dependencies) {
 				if (!this.createdNodeIds.has(depId) && !this.creatingNodes.has(depId)) {
@@ -1018,21 +908,21 @@ export class StreamingNodeCreator {
 					}
 				}
 			}
-			
+
 			// Step 3: Create the current node
 			const newNode = await this.createNodeDirectly(nodeXML);
-			
+
 			// Step 4: Create edges between this node and its dependencies (if both exist)
 			// This happens after the node is created, so edges can be created immediately
 			await this.createEdgesForNode(nodeXML.id);
-			
+
 			return newNode;
 		} finally {
 			// Remove from creating set
 			this.creatingNodes.delete(nodeXML.id);
 		}
 	}
-	
+
 	/**
 	 * Create edges for a specific node (if both endpoints exist)
 	 */
@@ -1042,7 +932,7 @@ export class StreamingNodeCreator {
 			if (edge.from === nodeId || edge.to === nodeId) {
 				const fromNode = this.createdNodeMap.get(edge.from);
 				const toNode = this.createdNodeMap.get(edge.to);
-				
+
 				// If both nodes exist and are real nodes (not placeholders), create edge
 				if (fromNode && toNode && fromNode.x !== undefined && toNode.x !== undefined) {
 					await this.createEdgeImmediately(edge, fromNode, toNode);
@@ -1050,7 +940,7 @@ export class StreamingNodeCreator {
 			}
 		}
 	}
-	
+
 	/**
 	 * Directly create a node without dependency checking (internal method)
 	 */
@@ -1059,15 +949,15 @@ export class StreamingNodeCreator {
 		if (this.createdNodeIds.has(nodeXML.id)) {
 			return this.createdNodeMap.get(nodeXML.id) || null;
 		}
-		
+
 		try {
 			// Determine position calculation method based on group membership
 			let pixelPos: { x: number; y: number };
-			
+
 			// Check if node belongs to pre-created group and should use anchor-based positioning
 			// Uses the helper method for consistent detection
 			const belongsToPreCreatedGroup = this.isNodeInPreCreatedGroup(nodeXML);
-			
+
 			if (belongsToPreCreatedGroup) {
 				// Use anchor-based positioning for nodes in pre-created groups
 				pixelPos = this.calculateNodePositionInPreCreatedGroup(nodeXML);
@@ -1076,29 +966,29 @@ export class StreamingNodeCreator {
 				// Fallback to relationship-driven position calculation for non-group nodes
 				pixelPos = this.calculatePositionFromRelations(nodeXML.id);
 			}
-			
+
 			// Get color based on type, with guaranteed non-null result for visual clarity
 			// Requirements: 11.1 - All created nodes must have a solid background color
 			const color = getColorForTypeWithDefault(nodeXML.type);
-			
+
 			// Create text node on canvas
 			const newNode = this.canvas.createTextNode({
 				pos: { x: pixelPos.x, y: pixelPos.y },
 				position: "left",
-				size: { 
-					width: this.settings.gridNodeWidth || 360, 
-					height: this.settings.gridNodeHeight || 200 
+				size: {
+					width: this.settings.gridNodeWidth || 360,
+					height: this.settings.gridNodeHeight || 200
 				},
 				text: nodeXML.content,
 				focus: false,
 			});
-			
+
 			// Apply color - always set since getColorForTypeWithDefault guarantees a value
 			// Requirements: 11.1 - Ensure all created nodes have a solid background color
 			newNode.setData({ color });
-			
+
 			this.canvas.addNode(newNode);
-			
+
 			// Store node
 			this.createdNodeMap.set(nodeXML.id, newNode);
 			this.nodePositions.set(nodeXML.id, { x: pixelPos.x, y: pixelPos.y });
@@ -1109,7 +999,7 @@ export class StreamingNodeCreator {
 			if (nodeXML.groupId) {
 				const groupSemanticId = nodeXML.groupId;
 				this.nodeToGroup.set(nodeXML.id, groupSemanticId);
-				
+
 				// Check if this is the pre-created group
 				if (this.preCreatedGroup && this.preCreatedGroupSemanticId === groupSemanticId) {
 					// Node belongs to pre-created group - ensure it's tracked
@@ -1119,7 +1009,7 @@ export class StreamingNodeCreator {
 					if (!this.groupMembers.get(groupSemanticId)!.includes(nodeXML.id)) {
 						this.groupMembers.get(groupSemanticId)!.push(nodeXML.id);
 					}
-					
+
 					// Update group bounds immediately
 					await this.updateGroupBounds(groupSemanticId);
 				} else {
@@ -1132,16 +1022,16 @@ export class StreamingNodeCreator {
 					}
 				}
 			}
-			
+
 			// If this is the first node, record it and redirect main edge (only if no pre-created group)
 			if (!this.firstNodeOrGroup && !this.preCreatedGroup) {
 				this.firstNodeOrGroup = newNode;
 				await this.redirectMainEdge();
 			}
-			
+
 			// Check if any pending edges can now be created
 			await this.checkAndCreatePendingEdges(nodeXML.id);
-			
+
 			// If node is in a group, update group bounds
 			const groupSemanticId = this.nodeToGroup.get(nodeXML.id);
 			if (groupSemanticId) {
@@ -1149,14 +1039,14 @@ export class StreamingNodeCreator {
 			}
 
 			console.log(`[StreamingNodeCreator] Created node ${nodeXML.id} at (${pixelPos.x}, ${pixelPos.y})`);
-			
+
 			return newNode;
 		} catch (error) {
 			console.error(`[StreamingNodeCreator] Failed to create node ${nodeXML.id}:`, error);
 			return null;
 		}
 	}
-	
+
 	/**
 	 * Create a group with nested nodes from XML format
 	 * Supports reusing pre-created group if semantic ID matches
@@ -1164,36 +1054,36 @@ export class StreamingNodeCreator {
 	async createGroupFromXML(groupXML: GroupXML): Promise<void> {
 		try {
 			// Check if this group matches the pre-created group
-			const isPreCreatedGroup = this.preCreatedGroup && 
+			const isPreCreatedGroup = this.preCreatedGroup &&
 				this.preCreatedGroupSemanticId === groupXML.id;
-			
+
 			let groupNode: CanvasNode;
 			let groupId: string;
 			let groupPixelPos: { x: number; y: number };
-			
+
 			if (isPreCreatedGroup && this.preCreatedGroup) {
 				// Reuse pre-created group
 				groupNode = this.preCreatedGroup;
 				groupId = groupNode.id;
 				groupPixelPos = { x: groupNode.x, y: groupNode.y };
-				
+
 				// Update group title if AI provided one
 				if (groupXML.title && groupXML.title !== "New Group") {
 					await this.updateGroupTitle(groupXML.id, groupXML.title);
 				}
-				
+
 				console.log(`[StreamingNodeCreator] Reusing pre-created group ${groupXML.id}`);
 			} else {
 				// Create new group (fallback for cases where AI generates multiple groups)
 				groupPixelPos = this.calculatePositionFromRelations(groupXML.id);
 				groupId = randomHexString(16);
-				
+
 				// Create the group node later after calculating bounds
 				groupNode = null as any; // Will be set after nodes are created
 			}
-			
+
 			const groupPadding = this.settings.groupPadding || 60;
-			
+
 			// Track group members for auto-resizing
 			const memberIds: string[] = [];
 			if (this.groupMembers.has(groupXML.id)) {
@@ -1204,13 +1094,13 @@ export class StreamingNodeCreator {
 
 			// Detect if this is a quadrant layout (four nodes with symmetric negative/positive coordinates)
 			const isQuadrantLayout = this.detectQuadrantLayout(groupXML.nodes);
-			
+
 			// Create nodes inside group
 			const groupNodes: any[] = [];
 			for (const nodeXML of groupXML.nodes) {
 				// Check if node already exists (might have been created by createNodeFromXML/updatePartialNode)
 				const existingNode = this.createdNodeMap.get(nodeXML.id);
-				
+
 				if (existingNode && existingNode.x !== undefined) {
 					// Node already exists and is rendered, just update its groupId mapping
 					this.nodeToGroup.set(nodeXML.id, groupXML.id); // Use semantic ID
@@ -1228,12 +1118,12 @@ export class StreamingNodeCreator {
 					groupPadding,
 					isQuadrantLayout
 				);
-				
+
 				// Get color based on type, with guaranteed non-null result for visual clarity
 				// Requirements: 11.1 - All created nodes must have a solid background color
 				const color = getColorForTypeWithDefault(nodeXML.type);
 				const nodeId = randomHexString(16);
-				
+
 				groupNodes.push({
 					id: nodeId,
 					type: "text",
@@ -1244,14 +1134,14 @@ export class StreamingNodeCreator {
 					height: this.settings.gridNodeHeight || 200,
 					color: color, // Always set - getColorForTypeWithDefault guarantees a value
 				});
-				
+
 				// Store mapping for edge creation (using semantic ID)
 				this.createdNodeMap.set(nodeXML.id, { id: nodeId } as any);
 				this.nodeToGroup.set(nodeXML.id, groupXML.id); // Use semantic ID for group mapping
 				memberIds.push(nodeXML.id);
 				this.nodeCounter++;
 			}
-			
+
 			// Handle group creation or node addition
 			if (isPreCreatedGroup && this.preCreatedGroup) {
 				// For pre-created group, just add nodes and update bounds
@@ -1261,9 +1151,9 @@ export class StreamingNodeCreator {
 						nodes: [...data.nodes, ...groupNodes],
 						edges: data.edges,
 					});
-					
+
 					await this.canvas.requestFrame();
-					
+
 					// Get actual CanvasNode references for created nodes
 					for (const nodeXML of groupXML.nodes) {
 						const actualNode = Array.from(this.canvas.nodes.values()).find(
@@ -1274,11 +1164,11 @@ export class StreamingNodeCreator {
 							this.createdNodeIds.add(nodeXML.id);
 						}
 					}
-					
+
 					// Update group bounds to include new nodes
 					await this.updateGroupBounds(groupXML.id);
 				}
-				
+
 				console.log(`[StreamingNodeCreator] Added ${groupXML.nodes.length} nodes to pre-created group ${groupXML.id}`);
 			} else {
 				// Create new group (fallback for multiple groups)
@@ -1287,7 +1177,7 @@ export class StreamingNodeCreator {
 					const minY = Math.min(...groupNodes.map(n => n.y));
 					const maxX = Math.max(...groupNodes.map(n => n.x + n.width));
 					const maxY = Math.max(...groupNodes.map(n => n.y + n.height));
-					
+
 					const groupNodeData = {
 						id: groupId,
 						type: "group",
@@ -1298,25 +1188,25 @@ export class StreamingNodeCreator {
 						height: maxY - minY + groupPadding * 2,
 						color: this.settings.defaultGroupColor || "4",
 					};
-					
+
 					// Import group and nodes
 					const data = this.canvas.getData();
 					this.canvas.importData({
 						nodes: [...data.nodes, groupNodeData, ...groupNodes],
 						edges: data.edges,
 					});
-					
+
 					await this.canvas.requestFrame();
-					
+
 					// Get actual CanvasNode references
 					groupNode = Array.from(this.canvas.nodes.values()).find(
 						n => n.id === groupId
 					) as CanvasNode;
-					
+
 					if (groupNode) {
 						this.createdNodeMap.set(groupXML.id, groupNode);
 					}
-					
+
 					// Get actual CanvasNode references for created nodes
 					for (const nodeXML of groupXML.nodes) {
 						const actualNode = Array.from(this.canvas.nodes.values()).find(
@@ -1335,7 +1225,7 @@ export class StreamingNodeCreator {
 							await this.redirectMainEdge();
 						}
 					}
-					
+
 					console.log(`[StreamingNodeCreator] Created group ${groupXML.id} with ${groupXML.nodes.length} nodes`);
 				}
 			}
@@ -1347,7 +1237,7 @@ export class StreamingNodeCreator {
 	/**
 	 * Update group bounds to fit all member nodes
 	 * This ensures the group container always contains its children as they grow
-	 * 
+	 *
 	 * For pre-created groups with anchor state:
 	 * - Only modify width/height when expanding for positive coordinates
 	 * - When negative coordinates appear, shift anchor and reposition all nodes
@@ -1383,12 +1273,12 @@ export class StreamingNodeCreator {
 		if (memberNodes.length === 0) return;
 
 		const padding = this.settings.groupPadding || 60;
-		
+
 		// Check if this is a pre-created group with anchor state
-		const isPreCreatedGroup = this.preCreatedGroup && 
+		const isPreCreatedGroup = this.preCreatedGroup &&
 			this.preCreatedGroupSemanticId === groupId &&
 			this.anchorState;
-		
+
 		if (isPreCreatedGroup && this.anchorState) {
 			// Use anchor-preserving bounds update for pre-created groups
 			await this.updateGroupBoundsPreservingAnchor(groupId, memberNodes, padding);
@@ -1397,7 +1287,7 @@ export class StreamingNodeCreator {
 			await this.updateGroupBoundsStandard(groupNode, memberNodes, padding);
 		}
 	}
-	
+
 	/**
 	 * Standard group bounds update (for non-anchored groups)
 	 * Simply calculates bounds to fit all member nodes
@@ -1423,44 +1313,47 @@ export class StreamingNodeCreator {
 
 		// Only update if dimensions changed significantly to avoid jitter and performance issues
 		// Threshold of 2 pixels is used to prevent micro-adjustments
-		if (Math.abs(groupNode.x - newX) > 2 || 
-			Math.abs(groupNode.y - newY) > 2 || 
-			Math.abs(groupNode.width - newWidth) > 2 || 
+		if (Math.abs(groupNode.x - newX) > 2 ||
+			Math.abs(groupNode.y - newY) > 2 ||
+			Math.abs(groupNode.width - newWidth) > 2 ||
 			Math.abs(groupNode.height - newHeight) > 2) {
-			
+
 			groupNode.setData({
 				x: newX,
 				y: newY,
 				width: newWidth,
 				height: newHeight
 			});
-			
+
 			await this.canvas.requestFrame();
 		}
 	}
-	
+
 	/**
 	 * Update group bounds while preserving anchor position
-	 * 
+	 *
 	 * CRITICAL: This method implements anchor immutability during streaming.
 	 * The group's x and y coordinates are NEVER modified during streaming.
 	 * Only width and height can change to expand the group downward and rightward.
-	 * 
+	 *
 	 * This prevents the "jitter" effect where the group visually vibrates during streaming
 	 * because the group was trying to re-center itself on every token update.
-	 * 
+	 *
 	 * For negative coordinates: nodes are repositioned within the existing anchor bounds,
 	 * but the anchor itself remains immutable. This is a design decision to prioritize
 	 * visual stability over perfect layout for edge cases.
-	 * 
+	 *
 	 * Group Height Expansion (Requirement 12.3, 12.4):
 	 * - Group height expands immediately when first node is created
 	 * - Formula: group.height = max(currentHeight, node.relativeY + node.height + PADDING_BOTTOM)
 	 * - Group container SHALL NOT shrink during the initial streaming phase
-	 * 
+	 *
 	 * Requirements: 9.1, 9.2, 9.3, 9.4 - Anchor Stabilization During Streaming
 	 * Requirements: 3.1, 3.2, 3.3 - Group Bounds Dynamic Expansion
 	 * Requirements: 12.3, 12.4 - Immediate container expansion, no shrinking
+	 *
+	 * 重构说明：使用 layoutEngine.calculateGroupBounds 计算组边界
+	 * Requirements: 3.1, 3.2, 3.3, 3.4 - 布局逻辑提取为纯函数
 	 */
 	private async updateGroupBoundsPreservingAnchor(
 		groupId: string,
@@ -1468,88 +1361,80 @@ export class StreamingNodeCreator {
 		padding: number
 	): Promise<void> {
 		if (!this.anchorState || !this.preCreatedGroup) {
-			console.warn('[StreamingNodeCreator] updateGroupBoundsPreservingAnchor called without anchor state');
+			console.warn("[StreamingNodeCreator] updateGroupBoundsPreservingAnchor called without anchor state");
 			return;
 		}
-		
+
 		const groupNode = this.preCreatedGroup;
-		const { PADDING_BOTTOM } = LAYOUT_CONSTANTS;
-		
+
 		// CRITICAL: Capture original anchor position for immutability assertion
 		const originalAnchorX = this.anchorState.anchorX;
 		const originalAnchorY = this.anchorState.anchorY;
-		
-		// Calculate the bounding box of all member nodes
-		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
-		memberNodes.forEach(node => {
-			minX = Math.min(minX, node.x);
-			minY = Math.min(minY, node.y);
-			maxX = Math.max(maxX, node.x + node.width);
-			maxY = Math.max(maxY, node.y + node.height);
-		});
-		
+		// 收集成员节点的位置和尺寸
+		const memberPositions = memberNodes
+			.filter(node => node.x !== undefined)
+			.map(node => ({
+				x: node.x,
+				y: node.y,
+				width: node.width,
+				height: node.height,
+			}));
+
 		// If no valid nodes, nothing to do
-		if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) {
+		if (memberPositions.length === 0) {
 			return;
 		}
-		
-		// CRITICAL: Calculate new dimensions - group can only GROW downward and rightward
-		// The anchor (x, y) is IMMUTABLE during streaming - only width/height can change
-		// 
-		// This ensures:
-		// - No jitter/jumping during streaming (Requirements 9.1, 9.2)
-		// - Group expands to fit content (Requirements 3.1)
-		// - Anchor position is preserved exactly (Requirements 9.3, 9.4)
-		// - Group expands immediately when first node is created (Requirements 12.3)
-		// - Group doesn't shrink during streaming (Requirements 12.4)
-		const newWidth = Math.max(
-			groupNode.width,
-			maxX - originalAnchorX + padding
+
+		// 使用 layoutEngine 中的纯函数计算组边界
+		// Requirements: 3.1, 3.2, 3.3, 3.4 - 布局逻辑提取为纯函数
+		const currentBounds = {
+			x: groupNode.x,
+			y: groupNode.y,
+			width: groupNode.width,
+			height: groupNode.height,
+		};
+
+		const newDimensions = calculateGroupBounds(
+			currentBounds,
+			memberPositions,
+			this.anchorState,
+			this.config
 		);
-		
-		// Height calculation uses PADDING_BOTTOM for proper bottom margin
-		// Formula: group.height = max(currentHeight, node.relativeY + node.height + PADDING_BOTTOM)
-		// where node.relativeY = node.y - anchorY
-		// This ensures the group immediately expands to wrap the first node (Requirements 12.3)
-		const newHeight = Math.max(
-			groupNode.height,
-			maxY - originalAnchorY + PADDING_BOTTOM
-		);
-		
+
 		// Only update if dimensions changed significantly (2-pixel tolerance)
 		// CRITICAL: Group can only GROW, never shrink during streaming (Requirements 12.4)
-		const widthChanged = newWidth > groupNode.width + 2;
-		const heightChanged = newHeight > groupNode.height + 2;
-		
+		const widthChanged = newDimensions.width > groupNode.width + 2;
+		const heightChanged = newDimensions.height > groupNode.height + 2;
+
 		if (widthChanged || heightChanged) {
 			// CRITICAL: Only update width and height - NEVER x or y
 			// This is the key fix for the jitter issue
 			groupNode.setData({
-				width: newWidth,
-				height: newHeight
+				width: newDimensions.width,
+				height: newDimensions.height
 				// x and y are intentionally NOT included - anchor is immutable during streaming
 			});
-			
+
 			await this.canvas.requestFrame();
-			
-			console.log(`[StreamingNodeCreator] Expanded group bounds: width=${newWidth}, height=${newHeight} (anchor immutable at ${originalAnchorX}, ${originalAnchorY})`);
+
+			console.log(`[StreamingNodeCreator] Expanded group bounds: width=${newDimensions.width}, height=${newDimensions.height} (anchor immutable at ${originalAnchorX}, ${originalAnchorY})`);
 		}
-		
+
 		// CRITICAL: Verify anchor immutability assertion (Requirements 9.1)
 		// This is a debug assertion to detect any anchor drift
 		this.assertAnchorImmutability(originalAnchorX, originalAnchorY, groupNode);
 	}
-	
+
 	/**
 	 * Assert that anchor position has not changed during streaming
-	 * 
+	 *
 	 * This is a debug assertion to detect any anchor drift that would cause
 	 * visual jitter. If drift is detected, a warning is logged but the
 	 * operation continues (fail-safe behavior).
-	 * 
+	 *
 	 * Requirements: 9.1 - Anchor Stabilization During Streaming
-	 * 
+	 *
 	 * @param expectedX - Expected anchor X position
 	 * @param expectedY - Expected anchor Y position
 	 * @param groupNode - The group canvas node to check
@@ -1561,29 +1446,29 @@ export class StreamingNodeCreator {
 	): void {
 		const actualX = groupNode.x;
 		const actualY = groupNode.y;
-		
+
 		// Check for any drift (exact match required, no tolerance)
 		const driftX = Math.abs(actualX - expectedX);
 		const driftY = Math.abs(actualY - expectedY);
-		
+
 		if (driftX > 0 || driftY > 0) {
 			console.warn(
-				`[StreamingNodeCreator] ANCHOR DRIFT DETECTED! ` +
+				"[StreamingNodeCreator] ANCHOR DRIFT DETECTED! " +
 				`Expected (${expectedX}, ${expectedY}), ` +
 				`Actual (${actualX}, ${actualY}), ` +
 				`Drift: (${driftX}, ${driftY}). ` +
-				`This may cause visual jitter during streaming.`
+				"This may cause visual jitter during streaming."
 			);
 		}
-		
+
 		// Also verify anchorState matches
 		if (this.anchorState) {
 			const anchorStateDriftX = Math.abs(this.anchorState.anchorX - expectedX);
 			const anchorStateDriftY = Math.abs(this.anchorState.anchorY - expectedY);
-			
+
 			if (anchorStateDriftX > 0 || anchorStateDriftY > 0) {
 				console.warn(
-					`[StreamingNodeCreator] ANCHOR STATE DRIFT DETECTED! ` +
+					"[StreamingNodeCreator] ANCHOR STATE DRIFT DETECTED! " +
 					`Expected (${expectedX}, ${expectedY}), ` +
 					`AnchorState (${this.anchorState.anchorX}, ${this.anchorState.anchorY}), ` +
 					`Drift: (${anchorStateDriftX}, ${anchorStateDriftY}).`
@@ -1591,17 +1476,17 @@ export class StreamingNodeCreator {
 			}
 		}
 	}
-	
+
 	/**
 	 * Shift anchor position and reposition all existing nodes
-	 * 
+	 *
 	 * This is called when negative grid coordinates cause nodes to extend
 	 * beyond the original anchor point. We need to:
 	 * 1. Calculate the new anchor position
 	 * 2. Calculate the shift delta
 	 * 3. Reposition all existing nodes by the delta to maintain relative positions
 	 * 4. Update the group bounds
-	 * 
+	 *
 	 * Requirements: 3.3 (relative position preservation)
 	 */
 	private async shiftAnchorAndRepositionNodes(
@@ -1614,15 +1499,15 @@ export class StreamingNodeCreator {
 		padding: number
 	): Promise<void> {
 		if (!this.anchorState || !this.preCreatedGroup) return;
-		
+
 		const groupNode = this.preCreatedGroup;
-		
+
 		// Calculate how much the anchor needs to shift
 		const deltaX = this.anchorState.anchorX - newX;
 		const deltaY = this.anchorState.anchorY - newY;
-		
+
 		console.log(`[StreamingNodeCreator] Shifting anchor by (${deltaX}, ${deltaY}) due to negative coordinates`);
-		
+
 		// Only reposition if there's a significant shift (> 2 pixels)
 		if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
 			// Reposition all existing nodes to maintain relative positions
@@ -1632,12 +1517,12 @@ export class StreamingNodeCreator {
 				const currentY = node.y;
 				const newNodeX = currentX + deltaX;
 				const newNodeY = currentY + deltaY;
-				
+
 				node.setData({
 					x: newNodeX,
 					y: newNodeY
 				});
-				
+
 				// Update our position tracking
 				const nodeSemanticId = this.findSemanticIdForNode(node);
 				if (nodeSemanticId) {
@@ -1645,11 +1530,11 @@ export class StreamingNodeCreator {
 				}
 			}
 		}
-		
+
 		// Update anchor state to new position
 		this.anchorState.anchorX = newX;
 		this.anchorState.anchorY = newY;
-		
+
 		// Recalculate bounds after repositioning
 		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 		memberNodes.forEach(node => {
@@ -1658,10 +1543,10 @@ export class StreamingNodeCreator {
 			maxX = Math.max(maxX, node.x + node.width);
 			maxY = Math.max(maxY, node.y + node.height);
 		});
-		
+
 		const finalWidth = maxX - minX + padding * 2;
 		const finalHeight = maxY - minY + padding * 2;
-		
+
 		// Update group bounds
 		groupNode.setData({
 			x: newX,
@@ -1669,12 +1554,12 @@ export class StreamingNodeCreator {
 			width: finalWidth,
 			height: finalHeight
 		});
-		
+
 		await this.canvas.requestFrame();
-		
+
 		console.log(`[StreamingNodeCreator] Anchor shifted to (${newX}, ${newY}), group bounds: ${finalWidth}x${finalHeight}`);
 	}
-	
+
 	/**
 	 * Find the semantic ID for a canvas node
 	 * Used when repositioning nodes to update position tracking
@@ -1687,7 +1572,7 @@ export class StreamingNodeCreator {
 		}
 		return null;
 	}
-	
+
 	/**
 	 * Create a node from Markdown parsed format
 	 */
@@ -1697,7 +1582,7 @@ export class StreamingNodeCreator {
 			// Calculate position based on index
 			const col = index % 3; // 3 columns
 			const row = Math.floor(index / 3);
-			
+
 			const pixelPos = gridToPixel(
 				{ row, col },
 				this.sourceNode,
@@ -1707,46 +1592,46 @@ export class StreamingNodeCreator {
 					gap: this.settings.gridGap || DEFAULT_GRID_OPTIONS.gap,
 				}
 			);
-			
+
 			// Create text node
 			const newNode = this.canvas.createTextNode({
 				pos: { x: pixelPos.x, y: pixelPos.y },
 				position: "left",
-				size: { 
-					width: this.settings.gridNodeWidth || 360, 
-					height: this.settings.gridNodeHeight || 200 
+				size: {
+					width: this.settings.gridNodeWidth || 360,
+					height: this.settings.gridNodeHeight || 200
 				},
 				text: parsedNode.content,
 				focus: false,
 			});
-			
+
 			this.canvas.addNode(newNode);
-			
+
 			// Store in map using index as ID for Markdown nodes
 			this.createdNodeMap.set(`md_${index}`, newNode);
 			this.nodeCounter++;
-			
+
 			console.log(`[StreamingNodeCreator] Created Markdown node ${index}`);
-			
+
 			return newNode;
 		} catch (error) {
-			console.error(`[StreamingNodeCreator] Failed to create Markdown node:`, error);
+			console.error("[StreamingNodeCreator] Failed to create Markdown node:", error);
 			return null;
 		}
 	}
-	
+
 	/**
 	 * Store edge relationship and create immediately if both nodes exist
 	 */
 	storeEdge(edge: EdgeXML): void {
 		this.pendingEdges.push(edge);
-		
+
 		// Build relationship mapping
 		if (!this.edgeRelations.has(edge.from)) {
 			this.edgeRelations.set(edge.from, []);
 		}
 		this.edgeRelations.get(edge.from)!.push(edge.to);
-		
+
 		// Update dependency graph for both nodes
 		// edge.from depends on edge.to (from -> to means from needs to)
 		if (!this.nodeDependencies.has(edge.from)) {
@@ -1755,7 +1640,7 @@ export class StreamingNodeCreator {
 		if (!this.nodeDependencies.get(edge.from)!.includes(edge.to)) {
 			this.nodeDependencies.get(edge.from)!.push(edge.to);
 		}
-		
+
 		// edge.to also depends on edge.from (bidirectional dependency for rendering)
 		if (!this.nodeDependencies.has(edge.to)) {
 			this.nodeDependencies.set(edge.to, []);
@@ -1763,7 +1648,7 @@ export class StreamingNodeCreator {
 		if (!this.nodeDependencies.get(edge.to)!.includes(edge.from)) {
 			this.nodeDependencies.get(edge.to)!.push(edge.from);
 		}
-		
+
 		// If both nodes already created, create edge immediately
 		const fromNode = this.createdNodeMap.get(edge.from);
 		const toNode = this.createdNodeMap.get(edge.to);
@@ -1775,7 +1660,7 @@ export class StreamingNodeCreator {
 			console.log(`[StreamingNodeCreator] Edge ${edge.from} -> ${edge.to} stored for later (nodes not ready)`);
 		}
 	}
-	
+
 	/**
 	 * Create edge immediately when both nodes exist
 	 */
@@ -1789,9 +1674,9 @@ export class StreamingNodeCreator {
 		if (this.createdEdges.has(edgeKey)) {
 			return;
 		}
-		
+
 		const { fromSide, toSide } = this.determineEdgeSides(fromNode, toNode);
-		
+
 		addEdge(
 			this.canvas,
 			randomHexString(16),
@@ -1800,14 +1685,14 @@ export class StreamingNodeCreator {
 			edge.label,
 			{ isGenerated: true }
 		);
-		
+
 		this.createdEdges.add(edgeKey);
-		
+
 		await this.canvas.requestFrame();
-		
+
 		console.log(`[StreamingNodeCreator] Created edge immediately: ${edge.from} -> ${edge.to}`);
 	}
-	
+
 	/**
 	 * Check and create pending edges for a specific node
 	 */
@@ -1817,14 +1702,14 @@ export class StreamingNodeCreator {
 			if (edge.from === nodeId || edge.to === nodeId) {
 				const fromNode = this.createdNodeMap.get(edge.from);
 				const toNode = this.createdNodeMap.get(edge.to);
-				
+
 				if (fromNode && toNode && fromNode.x !== undefined && toNode.x !== undefined) {
 					await this.createEdgeImmediately(edge, fromNode, toNode);
 				}
 			}
 		}
 	}
-	
+
 	/**
 	 * Create all pending edges
 	 * Returns the number of edges created
@@ -1832,7 +1717,7 @@ export class StreamingNodeCreator {
 	async createAllEdges(): Promise<number> {
 		let createdCount = 0;
 		let skippedCount = 0;
-		
+
 		for (const edge of this.pendingEdges) {
 			// Skip if already created
 			const edgeKey = `${edge.from}-${edge.to}`;
@@ -1842,7 +1727,7 @@ export class StreamingNodeCreator {
 
 			const fromNode = this.createdNodeMap.get(edge.from);
 			const toNode = this.createdNodeMap.get(edge.to);
-			
+
 			if (!fromNode || !toNode) {
 				console.warn(
 					`[StreamingNodeCreator] Skipping edge: ${edge.from} -> ${edge.to} (nodes not found)`
@@ -1850,7 +1735,7 @@ export class StreamingNodeCreator {
 				skippedCount++;
 				continue;
 			}
-			
+
 			// If nodes are placeholder objects (from groups), skip edge creation
 			if (fromNode.x === undefined || toNode.x === undefined) {
 				console.warn(
@@ -1859,7 +1744,7 @@ export class StreamingNodeCreator {
 				skippedCount++;
 				continue;
 			}
-			
+
 			try {
 				await this.createEdgeImmediately(edge, fromNode, toNode);
 				createdCount++;
@@ -1868,21 +1753,21 @@ export class StreamingNodeCreator {
 				skippedCount++;
 			}
 		}
-		
+
 		if (skippedCount > 0) {
 			console.log(`[StreamingNodeCreator] Finished edge creation: ${createdCount} created, ${skippedCount} skipped.`);
 		}
-		
+
 		return createdCount;
 	}
-	
+
 	/**
 	 * Get the total number of nodes created
 	 */
 	getCreatedNodeCount(): number {
 		return this.nodeCounter;
 	}
-	
+
 	/**
 	 * Create all pending nodes that haven't been created yet
 	 * This ensures nodes without connections are also created
@@ -1895,7 +1780,7 @@ export class StreamingNodeCreator {
 			}
 		}
 	}
-	
+
 	/**
 	 * Calculate node position based on edge relationships and spatial analysis
 	 */
@@ -1907,22 +1792,22 @@ export class StreamingNodeCreator {
 				incomingEdges.push(from);
 			}
 		}
-		
+
 		// If there are source nodes, position based on the first source
 		if (incomingEdges.length > 0) {
 			const sourceId = incomingEdges[0];
 			const sourceNode = this.createdNodeMap.get(sourceId);
-			
+
 			if (sourceNode && sourceNode.x !== undefined) {
 				// NEW: Merge AI suggestion with spatial analysis
 				return this.mergeAISuggestionWithSpatialAnalysis(sourceNode, nodeId);
 			}
 		}
-		
+
 		// Otherwise use default position with spatial awareness
 		return this.calculateDefaultPosition();
 	}
-	
+
 	/**
 	 * Merge AI coordinate suggestion with spatial analysis
 	 * This combines the relationship-driven positioning with space-aware intelligence
@@ -1932,46 +1817,46 @@ export class StreamingNodeCreator {
 		targetNodeId: string
 	): { x: number; y: number } {
 		const preferences = getLayoutPreferences(this.settings);
-		
+
 		// Get AI's suggested position using existing logic
 		const aiSuggestedPos = this.calculatePositionNearNode(sourceNode, targetNodeId);
-		
+
 		// Analyze canvas space to find best direction
 		const spatialAnalysis = analyzeBestDirection(this.canvas, sourceNode, preferences);
 		const bestDirection = spatialAnalysis[0];
-		
+
 		console.log(`[StreamingNodeCreator] AI suggested: (${aiSuggestedPos.x}, ${aiSuggestedPos.y})`);
 		console.log(`[StreamingNodeCreator] Spatial analysis best: ${bestDirection.direction} (score: ${bestDirection.score.toFixed(2)})`);
-		
+
 		// Decide whether to use AI suggestion or spatial analysis
 		const respectAI = preferences.respectAICoordinates ;
-		
+
 		if (respectAI && bestDirection.score < 50) {
 			// If spatial score is low but we respect AI, try AI's suggestion first
 			// But still check for collisions
 			if (!this.isPositionOccupied(
-				aiSuggestedPos, 
-				this.settings.gridNodeWidth || 360, 
+				aiSuggestedPos,
+				this.settings.gridNodeWidth || 360,
 				this.settings.gridNodeHeight || 200
 			)) {
-				console.log(`[StreamingNodeCreator] Using AI suggestion (no collision)`);
+				console.log("[StreamingNodeCreator] Using AI suggestion (no collision)");
 				return aiSuggestedPos;
 			}
 		}
-		
+
 		// Use spatial analysis to find best direction
 		// Try directions in order of score
 		for (const dirScore of spatialAnalysis) {
 			const pos = calculatePositionInDirection(
 				sourceNode,
 				dirScore.direction,
-				{ 
-					width: this.settings.gridNodeWidth || 360, 
-					height: this.settings.gridNodeHeight || 200 
+				{
+					width: this.settings.gridNodeWidth || 360,
+					height: this.settings.gridNodeHeight || 200
 				},
 				preferences.minNodeSpacing
 			);
-			
+
 			// Check if position is free
 			if (!this.isPositionOccupied(
 				pos,
@@ -1982,27 +1867,27 @@ export class StreamingNodeCreator {
 				return pos;
 			}
 		}
-		
+
 		// Fallback: use AI suggestion with offset if all directions occupied
-		console.log(`[StreamingNodeCreator] Fallback: AI suggestion with offset`);
+		console.log("[StreamingNodeCreator] Fallback: AI suggestion with offset");
 		const offset = this.nodeCounter * 50;
 		return {
 			x: aiSuggestedPos.x,
 			y: aiSuggestedPos.y + offset,
 		};
 	}
-	
+
 	/**
 	 * Calculate position near an existing node (with collision avoidance)
 	 */
 	private calculatePositionNearNode(
 		sourceNode: CanvasNode,
-		targetNodeId: string
+		_targetNodeId: string
 	): { x: number; y: number } {
 		const nodeWidth = this.settings.gridNodeWidth || 360;
 		const nodeHeight = this.settings.gridNodeHeight || 200;
 		const gap = this.settings.gridGap || 60;
-		
+
 		// Try directions in priority order: right, down, left, up
 		const directions = [
 			{ x: sourceNode.x + sourceNode.width + gap, y: sourceNode.y }, // Right
@@ -2010,14 +1895,14 @@ export class StreamingNodeCreator {
 			{ x: sourceNode.x - nodeWidth - gap, y: sourceNode.y }, // Left
 			{ x: sourceNode.x, y: sourceNode.y - nodeHeight - gap }, // Up
 		];
-		
+
 		// Find first non-overlapping position
 		for (const pos of directions) {
 			if (!this.isPositionOccupied(pos, nodeWidth, nodeHeight)) {
 				return pos;
 			}
 		}
-		
+
 		// If all overlap, use right side with vertical offset
 		const offset = this.nodeCounter * 50;
 		return {
@@ -2025,7 +1910,7 @@ export class StreamingNodeCreator {
 			y: sourceNode.y + offset,
 		};
 	}
-	
+
 	/**
 	 * Check if position is occupied (simple collision detection)
 	 */
@@ -2037,7 +1922,7 @@ export class StreamingNodeCreator {
 		for (const [id, existingPos] of this.nodePositions.entries()) {
 			const node = this.createdNodeMap.get(id);
 			if (!node) continue;
-			
+
 			// Simple rectangle collision detection
 			const overlap = !(
 				pos.x + width < existingPos.x ||
@@ -2045,13 +1930,13 @@ export class StreamingNodeCreator {
 				pos.y + height < existingPos.y ||
 				pos.y > existingPos.y + node.height
 			);
-			
+
 			if (overlap) return true;
 		}
-		
+
 		return false;
 	}
-	
+
 	/**
 	 * Calculate default position (for first node or nodes without relations)
 	 * Now uses spatial analysis for smarter placement
@@ -2060,19 +1945,19 @@ export class StreamingNodeCreator {
 		const nodeWidth = this.settings.gridNodeWidth || 360;
 		const nodeHeight = this.settings.gridNodeHeight || 200;
 		const gap = this.settings.gridGap || 60;
-		
+
 		// First node: analyze best direction from source
 		if (this.nodeCounter === 0) {
 			const preferences = getLayoutPreferences(this.settings);
 			const spatialAnalysis = analyzeBestDirection(
-				this.canvas, 
-				this.sourceNode, 
+				this.canvas,
+				this.sourceNode,
 				preferences
 			);
-			
+
 			const bestDirection = spatialAnalysis[0];
 			console.log(`[StreamingNodeCreator] Default position using: ${bestDirection.direction}`);
-			
+
 			return calculatePositionInDirection(
 				this.sourceNode,
 				bestDirection.direction,
@@ -2080,17 +1965,17 @@ export class StreamingNodeCreator {
 				gap
 			);
 		}
-		
+
 		// Subsequent nodes: use grid layout as fallback
 		const col = this.nodeCounter % 3;
 		const row = Math.floor(this.nodeCounter / 3);
-		
+
 		return {
 			x: this.sourceNode.x + this.sourceNode.width + gap + col * (nodeWidth + gap),
 			y: this.sourceNode.y + row * (nodeHeight + gap),
 		};
 	}
-	
+
 	/**
 	 * Redirect main edge to first node/group
 	 */
@@ -2098,47 +1983,47 @@ export class StreamingNodeCreator {
 		if (!this.placeholderNode || !this.mainEdgeId || !this.firstNodeOrGroup) {
 			return;
 		}
-		
+
 		// Get canvas data
 		const data = this.canvas.getData();
-		
+
 		// Find main edge
 		const mainEdge = data.edges.find((e: any) => e.id === this.mainEdgeId);
 		if (!mainEdge) {
 			console.warn("[StreamingNodeCreator] Main edge not found");
 			return;
 		}
-		
+
 		// Get source node (the node the edge is coming from)
 		const sourceNodeId = mainEdge.fromNode;
 		const sourceNode = this.canvas.nodes.get(sourceNodeId);
-		
+
 		if (!sourceNode) {
 			console.warn("[StreamingNodeCreator] Source node not found for main edge");
 			return;
 		}
-		
+
 		// Determine correct edge sides based on actual node positions
 		const { fromSide, toSide } = this.determineEdgeSides(
 			sourceNode,
 			this.firstNodeOrGroup
 		);
-		
+
 		// Remove old edge
 		const newEdges = data.edges.filter((e: any) => e.id !== this.mainEdgeId);
-		
+
 		// Use addEdge to create new edge with label (instead of importData)
 		// This ensures the edge label is properly set
 		const edgeLabel = this.userQuestion || mainEdge.label || "";
-		
+
 		console.log(`[StreamingNodeCreator] Redirecting main edge: ${fromSide} -> ${toSide} (from node at ${sourceNode.x},${sourceNode.y} to node at ${this.firstNodeOrGroup.x},${this.firstNodeOrGroup.y}) with label: "${edgeLabel}"`);
-		
+
 		// Remove old edge from canvas
 		this.canvas.importData({
 			nodes: data.nodes,
 			edges: newEdges,
 		});
-		
+
 		// Create new edge with label using addEdge
 		addEdge(
 			this.canvas,
@@ -2158,16 +2043,16 @@ export class StreamingNodeCreator {
 				isGenerated: true,
 			}
 		);
-		
+
 		await this.canvas.requestFrame();
-		
+
 		// Delete placeholder
 		this.canvas.removeNode(this.placeholderNode);
 		this.placeholderNode = null;
-		
+
 		console.log("[StreamingNodeCreator] Redirected main edge to first node/group");
 	}
-	
+
 	/**
 	 * Determine optimal edge connection sides based on node positions
 	 */
@@ -2179,10 +2064,10 @@ export class StreamingNodeCreator {
 		const fromCenterY = fromNode.y + fromNode.height / 2;
 		const toCenterX = toNode.x + toNode.width / 2;
 		const toCenterY = toNode.y + toNode.height / 2;
-		
+
 		const deltaX = toCenterX - fromCenterX;
 		const deltaY = toCenterY - fromCenterY;
-		
+
 		// Determine primary direction
 		if (Math.abs(deltaX) > Math.abs(deltaY)) {
 			// Horizontal connection
@@ -2207,28 +2092,28 @@ export class StreamingNodeCreator {
 	 */
 	private detectQuadrantLayout(nodes: NodeXML[]): boolean {
 		if (nodes.length !== 4) return false;
-		
+
 		const coords = nodes.map(n => ({ row: n.row || 0, col: n.col || 0 }));
-		
+
 		// Check if coordinates form a 2x2 grid with symmetric distribution
 		const rows = new Set(coords.map(c => c.row));
 		const cols = new Set(coords.map(c => c.col));
-		
+
 		// Should have exactly 2 distinct row values and 2 distinct col values
 		if (rows.size !== 2 || cols.size !== 2) return false;
-		
+
 		// Check if coordinates are symmetric (negative and positive values)
 		const rowValues = Array.from(rows).sort((a, b) => a - b);
 		const colValues = Array.from(cols).sort((a, b) => a - b);
-		
+
 		// For quadrant layout, we expect symmetric distribution around origin
 		// e.g., row: [-1, 1], col: [-1, 1]
-		const isSymmetric = 
+		const isSymmetric =
 			rowValues[0] < 0 && rowValues[1] > 0 &&
 			colValues[0] < 0 && colValues[1] > 0 &&
 			Math.abs(rowValues[0]) === Math.abs(rowValues[1]) &&
 			Math.abs(colValues[0]) === Math.abs(colValues[1]);
-		
+
 		return isSymmetric;
 	}
 
@@ -2244,32 +2129,32 @@ export class StreamingNodeCreator {
 		const nodeWidth = this.settings.gridNodeWidth || DEFAULT_GRID_OPTIONS.nodeWidth;
 		const nodeHeight = this.settings.gridNodeHeight || DEFAULT_GRID_OPTIONS.nodeHeight;
 		const baseGap = this.settings.gridGap || DEFAULT_GRID_OPTIONS.gap;
-		
+
 		// For quadrant layouts, use larger spacing and center-based coordinates
 		if (isQuadrantLayout) {
 			// Use larger gap for quadrant layouts (2x normal gap for better visual separation)
 			const quadrantGap = baseGap * 2;
-			
+
 			// For quadrant layout, we want to center the 2x2 grid in the group
 			// Calculate the total width/height needed for 2 nodes with gap
 			const totalWidth = nodeWidth * 2 + quadrantGap;
 			const totalHeight = nodeHeight * 2 + quadrantGap;
-			
+
 			// Start position: group top-left + padding, then offset to center the quadrant grid
 			// The center of the 2x2 grid should be at: groupPadding + totalWidth/2
 			const gridCenterX = groupPixelPos.x + groupPadding + totalWidth / 2;
 			const gridCenterY = groupPixelPos.y + groupPadding + totalHeight / 2;
-			
+
 			// Calculate position relative to grid center
 			const row = nodeXML.row || 0;
 			const col = nodeXML.col || 0;
-			
+
 			// Position node relative to center
 			// For row=-1, place above center; for row=1, place below center
 			// For col=-1, place left of center; for col=1, place right of center
 			const x = gridCenterX + col * (nodeWidth + quadrantGap) / 2 - nodeWidth / 2;
 			const y = gridCenterY + row * (nodeHeight + quadrantGap) / 2 - nodeHeight / 2;
-			
+
 			return { x, y };
 		} else {
 			// Normal layout: use standard grid-to-pixel conversion

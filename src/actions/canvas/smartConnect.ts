@@ -52,7 +52,7 @@ Example Output:
 
 /**
  * Smart Connect: Create AI-driven connections between selected nodes
- * 
+ *
  * @param app - Obsidian app instance
  * @param settings - Plugin settings
  * @param selectedNodes - Array of selected canvas nodes
@@ -69,31 +69,31 @@ export async function smartConnectNodes(
 		new Notice("请在插件设置中设置 DeepSeek API 密钥");
 		return;
 	}
-	
+
 	// Validate selection
 	if (!selectedNodes || selectedNodes.length < 2) {
 		new Notice("请选择至少 2 个节点以创建连线");
 		return;
 	}
-	
+
 	if (selectedNodes.length > 20) {
 		new Notice("选择的节点过多（最多 20 个）。请选择较少的节点。");
 		return;
 	}
-	
+
 	// Get active canvas
 	const maybeCanvasView = app.workspace.getActiveViewOfType(ItemView) as CanvasView | null;
 	const canvas = maybeCanvasView?.canvas;
-	
+
 	if (!canvas) {
 		new Notice("未找到活动的画布。请打开一个画布视图。");
 		return;
 	}
-	
+
 	try {
 		// Build nodes list for AI
 		const nodesList = await buildNodesListForAI(selectedNodes);
-		
+
 		// Build prompt
 		const prompt = `User Instruction: "${userInstruction}"
 
@@ -101,7 +101,7 @@ Input Nodes:
 ${nodesList}
 
 Generate <edge> tags to connect these nodes based on the instruction.`;
-		
+
 		const messages: any[] = [
 			{
 				role: "system",
@@ -112,12 +112,12 @@ Generate <edge> tags to connect these nodes based on the instruction.`;
 				content: prompt,
 			},
 		];
-		
+
 		new Notice(`Analyzing ${selectedNodes.length} nodes to create connections...`);
-		
+
 		// Stream AI response
 		let accumulatedResponse = "";
-		
+
 		await streamResponse(
 			settings.apiKey,
 			messages,
@@ -130,55 +130,55 @@ Generate <edge> tags to connect these nodes based on the instruction.`;
 				if (error) {
 					throw error;
 				}
-				
+
 				if (chunk) {
 					accumulatedResponse += chunk;
 				}
 			}
 		);
-		
+
 		// Parse XML response
 		if (!isXMLFormat(accumulatedResponse)) {
 			new Notice("AI response is not in XML format. Please try again.");
 			console.error("[SmartConnect] Non-XML response:", accumulatedResponse);
 			return;
 		}
-		
+
 		const parseResult = parseXML(accumulatedResponse);
-		
+
 		if (!parseResult.success) {
 			new Notice(`Failed to parse AI response: ${parseResult.errors.join(", ")}`);
 			console.error("[SmartConnect] Parse errors:", parseResult.errors);
 			return;
 		}
-		
+
 		const { edges } = parseResult.response;
-		
+
 		// Show warnings if any
 		if (parseResult.warnings.length > 0) {
 			console.warn("[SmartConnect] Parse warnings:", parseResult.warnings);
 		}
-		
+
 		// Validate edges against selected node IDs
 		const selectedNodeIds = new Set(selectedNodes.map(n => n.id));
 		const validEdges = validateEdges(edges, selectedNodeIds);
-		
+
 		if (validEdges.length === 0) {
 			new Notice("AI did not generate any valid connections. Try rephrasing your instruction.");
 			return;
 		}
-		
+
 		// Create edges on canvas
 		const createdCount = await createEdgesOnCanvas(canvas, validEdges, selectedNodes);
-		
+
 		if (createdCount > 0) {
-			new Notice(`✓ Successfully created ${createdCount} connection${createdCount > 1 ? 's' : ''}!`);
+			new Notice(`✓ Successfully created ${createdCount} connection${createdCount > 1 ? "s" : ""}!`);
 		} else {
 			new Notice("Failed to create connections. Please try again.");
 		}
-		
+
 		await canvas.requestSave();
-		
+
 	} catch (error: any) {
 		const errorMessage = error?.message || error?.toString() || "Unknown error";
 		console.error("[SmartConnect] Error:", error);
@@ -191,24 +191,24 @@ Generate <edge> tags to connect these nodes based on the instruction.`;
  */
 async function buildNodesListForAI(nodes: CanvasNode[]): Promise<string> {
 	const nodeDescriptions: string[] = [];
-	
+
 	for (let i = 0; i < nodes.length; i++) {
 		const node = nodes[i];
 		const content = await readNodeContent(node);
 		const nodeData = node.getData();
-		
+
 		// Truncate long content
 		const truncatedContent = content && content.length > 200
 			? content.substring(0, 200) + "..."
 			: content || "(empty)";
-		
+
 		const description = `- ID: ${node.id}
   Type: ${nodeData.type || "text"}
   Content: ${truncatedContent}`;
-		
+
 		nodeDescriptions.push(description);
 	}
-	
+
 	return nodeDescriptions.join("\n\n");
 }
 
@@ -223,22 +223,22 @@ async function createEdgesOnCanvas(
 	// Build ID to node map
 	const nodeMap = new Map<string, CanvasNode>();
 	selectedNodes.forEach(node => nodeMap.set(node.id, node));
-	
+
 	let createdCount = 0;
-	
+
 	for (const edge of edges) {
 		const fromNode = nodeMap.get(edge.from);
 		const toNode = nodeMap.get(edge.to);
-		
+
 		if (!fromNode || !toNode) {
 			console.warn(`[SmartConnect] Skipping edge: ${edge.from} -> ${edge.to} (nodes not found)`);
 			continue;
 		}
-		
+
 		try {
 			// Determine edge sides based on node positions
 			const { fromSide, toSide } = determineEdgeSides(fromNode, toNode);
-			
+
 			// Create edge
 			addEdge(
 				canvas,
@@ -258,16 +258,16 @@ async function createEdgesOnCanvas(
 					isGenerated: true,
 				}
 			);
-			
+
 			createdCount++;
-			
+
 			console.log(`[SmartConnect] Created edge: ${edge.from} -> ${edge.to} (${edge.label || "no label"})`);
-			
+
 		} catch (error) {
 			console.error(`[SmartConnect] Failed to create edge ${edge.from} -> ${edge.to}:`, error);
 		}
 	}
-	
+
 	return createdCount;
 }
 
@@ -282,10 +282,10 @@ function determineEdgeSides(
 	const fromCenterY = fromNode.y + fromNode.height / 2;
 	const toCenterX = toNode.x + toNode.width / 2;
 	const toCenterY = toNode.y + toNode.height / 2;
-	
+
 	const deltaX = toCenterX - fromCenterX;
 	const deltaY = toCenterY - fromCenterY;
-	
+
 	// Determine primary direction
 	if (Math.abs(deltaX) > Math.abs(deltaY)) {
 		// Horizontal connection

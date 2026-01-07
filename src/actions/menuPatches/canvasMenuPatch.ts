@@ -1,4 +1,4 @@
-import { App, ItemView, Notice, setIcon, setTooltip } from "obsidian";
+import { App, ItemView, setIcon, setTooltip } from "obsidian";
 import { around } from "monkey-around";
 import { CanvasView } from "../../obsidian/canvas-patches";
 import { CanvasNode } from "../../obsidian/canvas-internal";
@@ -59,7 +59,7 @@ const addNodeMenuItems = (
 	menuEl.appendChild(buttonEl_AskQuestion);
 	buttonEl_AskQuestion.addEventListener("click", () => {
 		console.log("Ask question with AI button clicked");
-		let modal = new CustomQuestionModal(
+		const modal = new CustomQuestionModal(
 			app,
 			(question2: string) => {
 				console.log("Modal callback received question:", question2);
@@ -108,7 +108,7 @@ const addMultiNodeMenuItems = (
 	setIcon(buttonEl_SmartConnect, "lucide-git-branch");
 	menuEl.appendChild(buttonEl_SmartConnect);
 	buttonEl_SmartConnect.addEventListener("click", () => {
-		let modal = new CustomQuestionModal(
+		const modal = new CustomQuestionModal(
 			app,
 			async (instruction: string) => {
 				await smartConnectNodes(app, settings, selectedNodes, instruction);
@@ -124,7 +124,7 @@ const addMultiNodeMenuItems = (
 	setIcon(buttonEl_SmartGroup, "lucide-group");
 	menuEl.appendChild(buttonEl_SmartGroup);
 	buttonEl_SmartGroup.addEventListener("click", () => {
-		let modal = new CustomQuestionModal(
+		const modal = new CustomQuestionModal(
 			app,
 			async (instruction: string) => {
 				await smartGroupExistingNodes(app, settings, selectedNodes, instruction);
@@ -162,7 +162,7 @@ export const createCanvasMenuPatch = (
 
 					const maybeCanvasView = app.workspace.getActiveViewOfType(ItemView) as CanvasView | null;
 					const selectionSize = maybeCanvasView?.canvas?.selection?.size || 0;
-					
+
 					if (!maybeCanvasView || selectionSize === 0) {
 						return result;
 					}
@@ -187,7 +187,7 @@ export const createCanvasMenuPatch = (
 					else if (selectionSize >= 2) {
 						// Filter out edges, only keep nodes
 						const selectedNodes = selectedItems.filter(item => !isEdge(item)) as CanvasNode[];
-						
+
 						if (selectedNodes.length >= 2) {
 							addMultiNodeMenuItems(app, settings, this.menuEl, selectedNodes);
 						}

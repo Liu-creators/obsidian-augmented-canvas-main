@@ -1,13 +1,11 @@
 import {
 	App,
-	TAbstractFile,
 	TFile,
 	TFolder,
 	loadPdfJs,
 	resolveSubpath,
 } from "obsidian";
 import { Canvas, CanvasNode, CreateNodeOptions } from "./canvas-internal";
-import { AugmentedCanvasSettings } from "src/settings/AugmentedCanvasSettings";
 
 export async function readFileContent(
 	app: App,
@@ -63,7 +61,7 @@ const pdfToMarkdown = async (app: App, file: TFile) => {
 		const page = await pdf.getPage(pageNum);
 		const textContent = await page.getTextContent();
 
-		let pageText = textContent.items
+		const pageText = textContent.items
 			.map((item: { str: string }) => item.str)
 			.join(" ");
 
@@ -78,26 +76,26 @@ const pdfToMarkdown = async (app: App, file: TFile) => {
 	return markdownContent;
 };
 
-const epubToMarkdown = async (app: App, file: TFile) => {
-	// TODO
+const epubToMarkdown = async (_app: App, _file: TFile) => {
+	// TODO: 实现 EPUB 转 Markdown
 	return "";
 };
 
 const readDifferentExtensionFileContent = async (app: App, file: TFile) => {
-	// console.log({ file });
 	switch (file.extension) {
-		case "md":
-			const body = await app.vault.cachedRead(file);
-			return `## ${file.basename}\n${body}`;
+	case "md": {
+		const body = await app.vault.cachedRead(file);
+		return `## ${file.basename}\n${body}`;
+	}
 
-		case "pdf":
-			return pdfToMarkdown(app, file);
+	case "pdf":
+		return pdfToMarkdown(app, file);
 
-		case "epub":
-			return epubToMarkdown(app, file);
+	case "epub":
+		return epubToMarkdown(app, file);
 
-		default:
-			break;
+	default:
+		break;
 	}
 };
 
@@ -105,19 +103,21 @@ export async function readNodeContent(node: CanvasNode) {
 	const app = node.app;
 	const nodeData = node.getData();
 	switch (nodeData.type) {
-		case "text":
-			return nodeData.text;
-		case "file":
-			const file = app.vault.getAbstractFileByPath(nodeData.file);
-			if (file instanceof TFile) {
-				if (node.subpath) {
-					return await readFileContent(app, file, nodeData.subpath);
-				} else {
-					return readDifferentExtensionFileContent(app, file);
-				}
+	case "text":
+		return nodeData.text;
+	case "file": {
+		const file = app.vault.getAbstractFileByPath(nodeData.file);
+		if (file instanceof TFile) {
+			if (node.subpath) {
+				return await readFileContent(app, file, nodeData.subpath);
 			} else {
-				console.debug("Cannot read from file type", file);
+				return readDifferentExtensionFileContent(app, file);
 			}
+		} else {
+			console.debug("Cannot read from file type", file);
+		}
+		break;
+	}
 	}
 }
 
@@ -140,11 +140,8 @@ ${fileContent}
 export const updateNodeAndSave = async (
 	canvas: Canvas,
 	node: CanvasNode,
-	// TODO: only accepts .text .size not working (is it Obsidian API?)
 	nodeOptions: CreateNodeOptions
 ) => {
-	// console.log({ nodeOptions });
-	// node.setText(nodeOptions.text);
 	// @ts-expect-error
 	node.setData(nodeOptions);
 	await canvas.requestSave();

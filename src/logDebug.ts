@@ -1,15 +1,14 @@
-import AugmentedCanvasPlugin from "./AugmentedCanvasPlugin";
 import { AugmentedCanvasSettings } from "./settings/AugmentedCanvasSettings";
 
-let settings: AugmentedCanvasSettings | null = null;
+let _settings: AugmentedCanvasSettings | null = null;
 
 export const initLogDebug = (settings2: AugmentedCanvasSettings) => {
 	// console.log({ settings2 });
-	settings = settings2;
+	_settings = settings2;
 };
 
-// @ts-expect-error
+// @ts-expect-error - 允许任意参数用于调试日志
 export const logDebug = (...params) => {
 	// console.log({ settings })
-	settings?.debug && console.log(...params);
+	_settings?.debug && console.log(...params);
 };

@@ -53,8 +53,8 @@ describe("IncrementalXMLParser - Chunk Boundary Scenarios", () => {
 		// Simulate streaming: first chunk ends with partial closing tag
 		parser.append('<node id="n1" type="concept" row="0" col="0">');
 		parser.append("Content text</");
-		
-		let incomplete = parser.detectIncompleteNodes();
+
+		const incomplete = parser.detectIncompleteNodes();
 		expect(incomplete.length).toBe(1);
 		expect(incomplete[0].content).toBe("Content text");
 		expect(incomplete[0].content).not.toContain("</");
@@ -69,8 +69,8 @@ describe("IncrementalXMLParser - Chunk Boundary Scenarios", () => {
 	it("should handle chunk ending with '<' followed by chunk starting with '/node>'", () => {
 		parser.append('<node id="n1" type="concept" row="0" col="0">');
 		parser.append("Some content<");
-		
-		let incomplete = parser.detectIncompleteNodes();
+
+		const incomplete = parser.detectIncompleteNodes();
 		expect(incomplete.length).toBe(1);
 		expect(incomplete[0].content).toBe("Some content");
 		expect(incomplete[0].content).not.toContain("<");
@@ -84,8 +84,8 @@ describe("IncrementalXMLParser - Chunk Boundary Scenarios", () => {
 	it("should handle chunk ending with '</no' followed by chunk starting with 'de>'", () => {
 		parser.append('<node id="n1" type="concept" row="0" col="0">');
 		parser.append("成本控制：优化Token使用。</no");
-		
-		let incomplete = parser.detectIncompleteNodes();
+
+		const incomplete = parser.detectIncompleteNodes();
 		expect(incomplete.length).toBe(1);
 		expect(incomplete[0].content).toBe("成本控制：优化Token使用。");
 		expect(incomplete[0].content).not.toContain("</no");
@@ -99,7 +99,7 @@ describe("IncrementalXMLParser - Chunk Boundary Scenarios", () => {
 	it("should handle multiple chunks with progressive partial tag buildup", () => {
 		parser.append('<node id="n1" type="concept" row="0" col="0">');
 		parser.append("Text content");
-		
+
 		let incomplete = parser.detectIncompleteNodes();
 		expect(incomplete[0].content).toBe("Text content");
 
@@ -132,7 +132,7 @@ describe("IncrementalXMLParser - Partial Nodes", () => {
 	it("should detect incomplete nodes as they are being streamed", () => {
 		parser.append('<node id="n1" type="concept" title="Test Node" row="0" col="1">');
 		parser.append("This is some ");
-		
+
 		let incomplete = parser.detectIncompleteNodes();
 		expect(incomplete.length).toBe(1);
 		expect(incomplete[0].id).toBe("n1");
@@ -147,8 +147,8 @@ describe("IncrementalXMLParser - Partial Nodes", () => {
 		parser.append('<group id="g1" title="Test Group" row="0" col="1">');
 		parser.append('  <node id="n1" type="concept" row="0" col="0">');
 		parser.append("Node inside group");
-		
-		let incomplete = parser.detectIncompleteNodes();
+
+		const incomplete = parser.detectIncompleteNodes();
 		expect(incomplete.length).toBe(1);
 		expect(incomplete[0].id).toBe("n1");
 		expect(incomplete[0].groupId).toBe("g1");
@@ -158,8 +158,8 @@ describe("IncrementalXMLParser - Partial Nodes", () => {
 	it("should detect incomplete groups", () => {
 		parser.append('<group id="g1" title="Streaming Group" row="0" col="1">');
 		parser.append('  <node id="n1"');
-		
-		let incompleteGroups = parser.detectIncompleteGroups();
+
+		const incompleteGroups = parser.detectIncompleteGroups();
 		expect(incompleteGroups.length).toBe(1);
 		expect(incompleteGroups[0].id).toBe("g1");
 		expect(incompleteGroups[0].title).toBe("Streaming Group");
@@ -167,11 +167,11 @@ describe("IncrementalXMLParser - Partial Nodes", () => {
 
 	it("should not return incomplete nodes if they are already completed", () => {
 		parser.append('<node id="n1" type="concept" row="0" col="1">Complete node</node>');
-		
+
 		// detectCompleteNodes marks it as processed
 		const complete = parser.detectCompleteNodes();
 		expect(complete.length).toBe(1);
-		
+
 		const incomplete = parser.detectIncompleteNodes();
 		expect(incomplete.length).toBe(0);
 	});

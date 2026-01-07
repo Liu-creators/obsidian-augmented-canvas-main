@@ -1,6 +1,6 @@
 /**
  * Property-Based Tests for IncrementalXMLParser.sanitizeContent
- * 
+ *
  * **Feature: xml-tag-leaking-fix**
  * Tests the sanitization of trailing partial XML tags from content strings
  */
@@ -18,7 +18,7 @@ describe("IncrementalXMLParser - sanitizeContent Property Tests", () => {
 	/**
 	 * **Feature: xml-tag-leaking-fix, Property 1: Trailing Partial Tag Removal**
 	 * **Validates: Requirements 1.1, 1.2, 1.3, 1.4, 2.2, 2.3, 2.4**
-	 * 
+	 *
 	 * For any content string ending with a partial XML tag pattern,
 	 * the sanitizeContent function SHALL return the content with the trailing partial tag removed.
 	 */
@@ -40,7 +40,7 @@ describe("IncrementalXMLParser - sanitizeContent Property Tests", () => {
 				fc.property(baseContent, partialTagSuffix, (base, suffix) => {
 					const contentWithPartialTag = base + suffix;
 					const sanitized = parser.sanitizeContent(contentWithPartialTag);
-					
+
 					// The sanitized content should not end with a partial tag pattern
 					const hasTrailingPartialTag = /<\/?[a-zA-Z]*$/.test(sanitized);
 					return !hasTrailingPartialTag;
@@ -54,7 +54,7 @@ describe("IncrementalXMLParser - sanitizeContent Property Tests", () => {
 				fc.property(baseContent, partialTagSuffix, (base, suffix) => {
 					const contentWithPartialTag = base + suffix;
 					const sanitized = parser.sanitizeContent(contentWithPartialTag);
-					
+
 					// The sanitized content should start with the base content
 					return sanitized === base || base.startsWith(sanitized);
 				}),
@@ -67,7 +67,7 @@ describe("IncrementalXMLParser - sanitizeContent Property Tests", () => {
 	/**
 	 * **Feature: xml-tag-leaking-fix, Property 2: Content Preservation for Non-Tag Characters**
 	 * **Validates: Requirements 2.5, 5.1, 5.2**
-	 * 
+	 *
 	 * For any content string that does NOT end with a partial XML tag pattern,
 	 * the sanitizeContent function SHALL return the content unchanged.
 	 */
@@ -100,7 +100,7 @@ describe("IncrementalXMLParser - sanitizeContent Property Tests", () => {
 	/**
 	 * **Feature: xml-tag-leaking-fix, Property 3: Sanitization Idempotence**
 	 * **Validates: Requirements 2.1, 6.2**
-	 * 
+	 *
 	 * For any content string, applying sanitizeContent twice SHALL produce
 	 * the same result as applying it once.
 	 */

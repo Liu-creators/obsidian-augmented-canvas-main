@@ -1,10 +1,8 @@
-import { Editor, Notice, SuggestModal, App } from "obsidian";
-import { getActiveCanvas } from "../utils";
+import { SuggestModal, App } from "obsidian";
 import {
 	AugmentedCanvasSettings,
 	SystemPrompt,
 } from "../settings/AugmentedCanvasSettings";
-import { calcHeight, createNode } from "../obsidian/canvas-patches";
 import Fuse, { FuseResult } from "fuse.js";
 
 /**
@@ -68,7 +66,7 @@ export default class QuickActionModal extends SuggestModal<SystemPrompt> {
 			textAlign: "center",
 		});
 
-		const input = el.createEl("span", {
+		el.createEl("span", {
 			text: systemPrompt.act,
 		});
 	}
@@ -76,11 +74,11 @@ export default class QuickActionModal extends SuggestModal<SystemPrompt> {
 	/**
 	 * Handler for when the user chooses an option
 	 * @param option the option selected by the user
-	 * @param evt the triggering mouse or keyboard event
+	 * @param _evt the triggering mouse or keyboard event
 	 */
 	onChooseSuggestion(
 		systemPrompt: SystemPrompt,
-		evt: MouseEvent | KeyboardEvent
+		_evt: MouseEvent | KeyboardEvent
 	) {
 		this.onChoose(systemPrompt);
 	}

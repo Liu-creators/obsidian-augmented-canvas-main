@@ -1,14 +1,7 @@
 import {
-	Canvas,
-	CanvasView,
-	ItemView,
-	Menu,
-	MenuItem,
 	Notice,
 	Plugin,
 	TFolder,
-	setIcon,
-	setTooltip,
 } from "obsidian";
 import {
 	AugmentedCanvasSettings,

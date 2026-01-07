@@ -1,7 +1,7 @@
 import { App, ItemView, Notice, setIcon, setTooltip } from "obsidian";
 import { AugmentedCanvasSettings } from "../../settings/AugmentedCanvasSettings";
 import { CanvasNode } from "../../obsidian/canvas-internal";
-import { CanvasView, createNode, addEdge } from "../../obsidian/canvas-patches";
+import { CanvasView, addEdge } from "../../obsidian/canvas-patches";
 import { noteGenerator } from "../canvasNodeMenuActions/noteGenerator";
 import { streamResponse } from "../../utils/chatgpt";
 import { IncrementalMarkdownParser } from "../../utils/groupGenerator";
@@ -213,7 +213,7 @@ export async function generateGroupWithAI(
 	// Get active canvas
 	const maybeCanvasView = app.workspace.getActiveViewOfType(ItemView) as CanvasView | null;
 	const canvas = maybeCanvasView?.canvas;
-	
+
 	if (!canvas) {
 		new Notice("No active canvas found. Please open a canvas view.");
 		return;
@@ -246,10 +246,10 @@ export async function generateGroupWithAI(
 	try {
 		// Build context from node and ancestors
 		const { buildMessages } = noteGenerator(app, settings, node);
-		
+
 		// Prepare prompt
 		let finalPrompt = userQuestion || "Please generate a comprehensive breakdown of this topic.";
-		
+
 		// If source is a group, read its content
 		if (isGroup(node)) {
 			const groupContent = await buildGroupContext(node);
@@ -257,10 +257,10 @@ export async function generateGroupWithAI(
 				finalPrompt = `Based on the following content:\n\n${groupContent}\n\n${finalPrompt}`;
 			}
 		}
-		
-		// Use XML format (PRD v2.0) 
+
+		// Use XML format (PRD v2.0)
 		const systemPrompt = SYSTEM_PROMPT_SMART_EXPAND_XML ;
-		
+
 		const { messages, tokenCount } = await buildMessages(node, {
 			systemPrompt: systemPrompt,
 			prompt: finalPrompt,
@@ -270,11 +270,11 @@ export async function generateGroupWithAI(
 		const preferences = getLayoutPreferences(settings);
 		const directionScores = analyzeBestDirection(canvas, node, preferences);
 		const bestDirection = directionScores[0];
-		
+
 		const groupWidth = 400; // Initial width
 		const groupHeight = 300; // Initial height
 		const spacing = userQuestion ? preferences.minNodeSpacing + 50 : preferences.minNodeSpacing;
-		
+
 		const groupPos = calculatePositionInDirection(
 			node,
 			bestDirection.direction,
@@ -313,10 +313,10 @@ export async function generateGroupWithAI(
 		const fromCenterY = node.y + node.height / 2;
 		const toCenterX = groupNode.x + groupNode.width / 2;
 		const toCenterY = groupNode.y + groupNode.height / 2;
-		
+
 		const deltaX = toCenterX - fromCenterX;
 		const deltaY = toCenterY - fromCenterY;
-		
+
 		let fromSide: string, toSide: string;
 		if (Math.abs(deltaX) > Math.abs(deltaY)) {
 			// Horizontal connection
@@ -368,14 +368,14 @@ export async function generateGroupWithAI(
 		const xmlParser = new IncrementalXMLParser();
 		const mdParser = new IncrementalMarkdownParser();
 		const nodeCreator = new StreamingNodeCreator(canvas, node, settings);
-		
+
 		// Set pre-created group information
 		// Use a semantic ID for the group (will be matched when AI generates <group id="...">)
 		// Pass edge direction for safe zone calculation (Requirements: 7.1, 7.2, 7.3)
 		const preCreatedGroupSemanticId = "g1"; // Default semantic ID for the first group
 		const edgeDirection: EdgeDirection = toSide as EdgeDirection; // Edge connects TO the group from this side
 		nodeCreator.setPreCreatedGroup(groupNode, preCreatedGroupSemanticId, mainEdgeId, userQuestion || "", edgeDirection);
-		
+
 		let accumulatedResponse = "";
 		let lastNodeUpdate = Date.now();
 		let mdNodeIndex = 0;
@@ -401,7 +401,7 @@ export async function generateGroupWithAI(
 					console.log("[GenerateGroup] Full AI Response:");
 					console.log(accumulatedResponse);
 					console.log("[GenerateGroup] ===========================================");
-					
+
 					// Also log using logDebug for consistency
 					logDebug("AI Full Response", {
 						userQuestion: userQuestion || "(none)",
@@ -412,25 +412,25 @@ export async function generateGroupWithAI(
 				}
 
 				accumulatedResponse += chunk;
-				
+
 				// Incremental parsing and node creation
 				const now = Date.now();
 				if (xmlParser) {
 					xmlParser.append(chunk);
-					
+
 					// IMPORTANT: Store edges first to build dependency graph
 					// This allows nodes to know their dependencies when being created
 					// and enables the "Connection-First" (连线优先) strategy.
 					const completeEdges = xmlParser.detectCompleteEdges();
 					completeEdges.forEach(edge => nodeCreator.storeEdge(edge));
-					
+
 					// Detect and create complete nodes (now with dependency awareness)
 					const completeNodes = xmlParser.detectCompleteNodes();
 					for (const nodeXML of completeNodes) {
 						await nodeCreator.createNodeFromXML(nodeXML);
 						await canvas.requestFrame();
 					}
-					
+
 					// Real-time update for all nodes (including incomplete ones)
 					// This fulfills the requirement for all nodes to show content immediately.
 					// Throttled to 50ms for performance.
@@ -455,10 +455,10 @@ export async function generateGroupWithAI(
 						await nodeCreator.createGroupFromXML(groupXML);
 						await canvas.requestFrame();
 					}
-					
+
 				} else if (mdParser) {
 					mdParser.append(chunk);
-					
+
 					// Detect and create complete Markdown nodes
 					const completeNodes = mdParser.detectCompleteNodes();
 					for (const parsedNode of completeNodes) {
@@ -471,7 +471,7 @@ export async function generateGroupWithAI(
 
 		// Stream completed - handle remaining content
 		await sleep(200);
-		
+
 		// Process any remaining content
 		if (xmlParser) {
 			// 1. Final update for all incomplete nodes/groups to ensure latest content is shown
@@ -488,14 +488,14 @@ export async function generateGroupWithAI(
 			// 2. Process any remaining edges that might have been parsed
 			const remainingEdges = xmlParser.detectCompleteEdges();
 			remainingEdges.forEach(edge => nodeCreator.storeEdge(edge));
-			
+
 			// 3. Process any remaining nodes that might have been parsed
 			const remainingNodes = xmlParser.detectCompleteNodes();
 			for (const nodeXML of remainingNodes) {
 				await nodeCreator.createNodeFromXML(nodeXML);
 				await canvas.requestFrame();
 			}
-			
+
 			// 4. Create all pending nodes (nodes without connections)
 			await nodeCreator.createAllPendingNodes();
 			await canvas.requestFrame();
@@ -518,11 +518,11 @@ export async function generateGroupWithAI(
 				await canvas.requestFrame();
 			}
 		}
-		
+
 		// Create all remaining pending edges (should be minimal since we create edges immediately when possible)
 		const edgeCount = await nodeCreator.createAllEdges();
 		await canvas.requestFrame();
-		
+
 		// Final update of group bounds to ensure all nodes are included
 		if (groupNode) {
 			// Force a final bounds update for the pre-created group
@@ -547,14 +547,14 @@ export async function generateGroupWithAI(
 				await canvas.requestFrame();
 			}
 		}
-		
+
 		// Success notification
 		const totalNodes = nodeCreator.getCreatedNodeCount();
-		const edgeMsg = edgeCount > 0 ? ` and ${edgeCount} connection${edgeCount > 1 ? 's' : ''}` : '';
-		new Notice(`✓ Created ${totalNodes} node${totalNodes > 1 ? 's' : ''}${edgeMsg} with organic growth!`);
-		
+		const edgeMsg = edgeCount > 0 ? ` and ${edgeCount} connection${edgeCount > 1 ? "s" : ""}` : "";
+		new Notice(`✓ Created ${totalNodes} node${totalNodes > 1 ? "s" : ""}${edgeMsg} with organic growth!`);
+
 		await canvas.requestSave();
-		
+
 		return; // Exit early since we've handled everything with streaming
 
 		// NOTE: The old fallback implementation code below has been removed
@@ -583,10 +583,10 @@ export const addGenerateGroupButton = async (
 
 	buttonEl.addEventListener("click", async (e) => {
 		e.stopPropagation();
-		
+
 		// Import modal here to avoid circular dependency
 		const { CustomQuestionModal } = await import("../../Modals/CustomQuestionModal");
-		
+
 		const modal = new CustomQuestionModal(app, async (question: string) => {
 			try {
 				await generateGroupWithAI(app, settings, undefined, question);

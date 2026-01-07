@@ -21,10 +21,10 @@ export class CustomQuestionModal extends Modal {
 	}
 
 	onOpen() {
-		let { contentEl } = this;
+		const { contentEl } = this;
 		contentEl.className = "augmented-canvas-modal-container";
 
-		let textareaEl = contentEl.createEl("textarea");
+		const textareaEl = contentEl.createEl("textarea");
 		this.textareaEl = textareaEl;
 		textareaEl.className = "augmented-canvas-modal-textarea";
 		textareaEl.placeholder = this.placeholder;
@@ -43,7 +43,7 @@ export class CustomQuestionModal extends Modal {
 		});
 
 		// Create and append a submit button
-		let submitBtn = contentEl.createEl("button", { text: "提问 AI" });
+		const submitBtn = contentEl.createEl("button", { text: "提问 AI" });
 		submitBtn.addEventListener("click", (e) => {
 			console.log("Ask AI button clicked, question:", textareaEl.value);
 			e.preventDefault();
@@ -51,12 +51,12 @@ export class CustomQuestionModal extends Modal {
 			this.onSubmit(textareaEl.value);
 			this.close();
 		});
-		
+
 		console.log("CustomQuestionModal opened, button attached");
 	}
 
 	onClose() {
-		let { contentEl } = this;
+		const { contentEl } = this;
 		contentEl.empty();
 	}
 }

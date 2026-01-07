@@ -39,12 +39,12 @@ export function parseConnectionsFromMarkdown(
 	nodeCount: number
 ): ConnectionInfo[] {
 	const connections: ConnectionInfo[] = [];
-	
+
 	// First, try to find standalone connections section (with double newlines)
 	let connectionsText = "";
 	const connectionSeparator = /\n\n---\s*\[CONNECTIONS\]\s*---\s*\n\n/i;
 	const separatorMatch = markdown.match(connectionSeparator);
-	
+
 	if (separatorMatch && separatorMatch.index !== undefined) {
 		// Found standalone connections section
 		connectionsText = markdown.substring(separatorMatch.index + separatorMatch[0].length).trim();
@@ -53,7 +53,7 @@ export function parseConnectionsFromMarkdown(
 		// Match: ---[CONNECTIONS]--- with optional whitespace/newlines
 		const embeddedPattern = /(?:^|\n)\s*---\s*\[CONNECTIONS\]\s*---\s*\n?([\s\S]*?)(?:\n\n---\s*\[NODE\]\s*---|$)/i;
 		const embeddedMatch = markdown.match(embeddedPattern);
-		
+
 		if (embeddedMatch && embeddedMatch[1]) {
 			connectionsText = embeddedMatch[1].trim();
 		} else {
@@ -65,36 +65,36 @@ export function parseConnectionsFromMarkdown(
 			}
 		}
 	}
-	
+
 	if (!connectionsText) {
-		console.log('[GroupGenerator] No connections text found');
+		console.log("[GroupGenerator] No connections text found");
 		return connections;
 	}
-	
+
 	console.log(`[GroupGenerator] Parsing connections from text:\n${connectionsText}`);
-	
+
 	// Parse connection lines
 	// Format: "1 -> 2: \"label\"" or "1 -> 2" or "1 -> 2: label"
 	const connectionLineRegex = /^(\d+)\s*->\s*(\d+)(?:\s*:\s*(?:"([^"]*)"|'([^']*)'|([^\n]+)))?/gm;
-	const lines = connectionsText.split('\n');
-	
+	const lines = connectionsText.split("\n");
+
 	for (const line of lines) {
 		const trimmedLine = line.trim();
-		if (!trimmedLine || trimmedLine.startsWith('#')) {
+		if (!trimmedLine || trimmedLine.startsWith("#")) {
 			// Skip empty lines and comments
 			continue;
 		}
-		
+
 		const match = trimmedLine.match(/^(\d+)\s*->\s*(\d+)(?:\s*:\s*(.+))?/);
 		if (!match) {
 			// Invalid format, skip
 			continue;
 		}
-		
+
 		const fromIndex = parseInt(match[1], 10) - 1; // Convert to 0-based
 		const toIndex = parseInt(match[2], 10) - 1;   // Convert to 0-based
 		let label: string | undefined;
-		
+
 		// Extract label (remove quotes if present)
 		if (match[3]) {
 			label = match[3].trim();
@@ -104,28 +104,28 @@ export function parseConnectionsFromMarkdown(
 				label = label.slice(1, -1);
 			}
 		}
-		
+
 		// Validate indices
 		if (fromIndex < 0 || fromIndex >= nodeCount ||
 			toIndex < 0 || toIndex >= nodeCount) {
 			// Invalid index, skip
 			continue;
 		}
-		
+
 		// Skip self-connections
 		if (fromIndex === toIndex) {
 			continue;
 		}
-		
+
 		connections.push({
 			fromIndex,
 			toIndex,
 			label: label || undefined,
 		});
-		
-		console.log(`[GroupGenerator] Parsed connection: ${fromIndex + 1} -> ${toIndex + 1}${label ? ` (${label})` : ''}`);
+
+		console.log(`[GroupGenerator] Parsed connection: ${fromIndex + 1} -> ${toIndex + 1}${label ? ` (${label})` : ""}`);
 	}
-	
+
 	console.log(`[GroupGenerator] Total connections parsed: ${connections.length}`);
 	return connections;
 }
@@ -137,7 +137,7 @@ export function parseConnectionsFromMarkdown(
 function removeConnectionsFromContent(content: string): string {
 	// Remove ---[CONNECTIONS]--- and everything after it
 	const connectionPattern = /(?:^|\n)\s*---\s*\[CONNECTIONS\]\s*---\s*[\s\S]*$/i;
-	return content.replace(connectionPattern, '').trim();
+	return content.replace(connectionPattern, "").trim();
 }
 
 /**
@@ -151,23 +151,23 @@ export function parseNodesFromMarkdown(markdown: string): {
 	connections: ConnectionInfo[];
 } {
 	const nodes: ParsedNode[] = [];
-	
+
 	// First, separate nodes and connections sections
 	// Try to find standalone connections section first
 	const connectionSeparator = /\n\n---\s*\[CONNECTIONS\]\s*---\s*\n\n/i;
 	const separatorMatch = markdown.match(connectionSeparator);
-	
+
 	let nodesMarkdown = markdown;
 	if (separatorMatch && separatorMatch.index !== undefined) {
 		// Extract only the nodes part (before connections)
 		nodesMarkdown = markdown.substring(0, separatorMatch.index).trim();
 	}
-	
+
 	// Primary: Use new ---[NODE]--- separator (avoids conflicts with Markdown)
 	// Match pattern: ---[NODE]--- with optional whitespace, surrounded by newlines
 	const newNodeSeparator = /\n\n---\s*\[NODE\]\s*---\n\n/g;
 	const newFormatParts = nodesMarkdown.split(newNodeSeparator).filter(part => part.trim());
-	
+
 	if (newFormatParts.length > 1) {
 		// Successfully parsed using new separator
 		for (const part of newFormatParts) {
@@ -183,18 +183,18 @@ export function parseNodesFromMarkdown(markdown: string): {
 		// Fallback 1: Try old ### header format (for backward compatibility)
 		const headerRegex = /^###\s+(.+?)$/gm;
 		const matches = Array.from(nodesMarkdown.matchAll(headerRegex));
-		
+
 		if (matches.length > 0) {
 			// Split by ### headers
 			const parts = nodesMarkdown.split(/^###\s+/gm).filter(part => part.trim());
-			
+
 			for (const part of parts) {
-				const lines = part.split('\n');
+				const lines = part.split("\n");
 				const title = lines[0].trim();
-				let content = lines.slice(1).join('\n').trim();
+				let content = lines.slice(1).join("\n").trim();
 				// Remove connections section if it appears in node content
 				content = removeConnectionsFromContent(content);
-				
+
 				if (content) {
 					nodes.push({ title, content });
 				}
@@ -202,7 +202,7 @@ export function parseNodesFromMarkdown(markdown: string): {
 		} else {
 			// Fallback 2: Try old --- separator format (for backward compatibility)
 			const oldSeparatorParts = nodesMarkdown.split(/\n---\n/).filter(part => part.trim());
-			
+
 			if (oldSeparatorParts.length > 1) {
 				// Multiple parts separated by ---
 				for (const part of oldSeparatorParts) {
@@ -224,10 +224,10 @@ export function parseNodesFromMarkdown(markdown: string): {
 			}
 		}
 	}
-	
+
 	// Parse connections (use original markdown to find connections anywhere)
 	const connections = parseConnectionsFromMarkdown(markdown, nodes.length);
-	
+
 	return { nodes, connections };
 }
 
@@ -241,11 +241,11 @@ function calcNodeHeight(content: string, width: number): number {
 	const textPaddingHeight = 12;
 	const minHeight = 100;
 	const maxHeight = 600;
-	
+
 	const calcTextHeight = Math.round(
 		textPaddingHeight + (pxPerLine * content.length) / (width / pxPerChar)
 	);
-	
+
 	return Math.max(minHeight, Math.min(maxHeight, calcTextHeight));
 }
 
@@ -263,12 +263,12 @@ export function calculateSmartLayout(
 	const nodeCount = nodeContents.length;
 	const nodeWidth = options.nodeWidth || 360;
 	const nodeSpacing = options.nodeSpacing || 40;
-	
+
 	const layouts: NodeLayout[] = [];
-	
+
 	// Determine layout strategy based on node count
 	let columns: number;
-	
+
 	if (nodeCount <= 2) {
 		// Horizontal layout for 1-2 nodes
 		columns = nodeCount;
@@ -282,51 +282,51 @@ export function calculateSmartLayout(
 		// 3 column grid for 7+ nodes
 		columns = 3;
 	}
-	
+
 	// Calculate positions
 	let row = 0;
 	let col = 0;
-	let rowHeights: number[] = [];
-	
+	const rowHeights: number[] = [];
+
 	// First pass: calculate heights and positions
 	for (let i = 0; i < nodeCount; i++) {
 		const height = calcNodeHeight(nodeContents[i], nodeWidth);
-		
+
 		// Track maximum height in current row
 		if (rowHeights[row] === undefined) {
 			rowHeights[row] = height;
 		} else {
 			rowHeights[row] = Math.max(rowHeights[row], height);
 		}
-		
+
 		const x = col * (nodeWidth + nodeSpacing);
 		let y = 0;
 		for (let r = 0; r < row; r++) {
 			y += rowHeights[r] + nodeSpacing;
 		}
-		
+
 		layouts.push({ x, y, width: nodeWidth, height });
-		
+
 		col++;
 		if (col >= columns) {
 			col = 0;
 			row++;
 		}
 	}
-	
+
 	// Adjust heights to match row maximum
 	let currentRow = 0;
 	let currentCol = 0;
 	for (let i = 0; i < layouts.length; i++) {
 		layouts[i].height = rowHeights[currentRow];
-		
+
 		currentCol++;
 		if (currentCol >= columns) {
 			currentCol = 0;
 			currentRow++;
 		}
 	}
-	
+
 	return layouts;
 }
 
@@ -339,12 +339,12 @@ function calculateGroupBounds(
 ): { width: number; height: number } {
 	let maxX = 0;
 	let maxY = 0;
-	
+
 	for (const layout of layouts) {
 		maxX = Math.max(maxX, layout.x + layout.width);
 		maxY = Math.max(maxY, layout.y + layout.height);
 	}
-	
+
 	return {
 		width: maxX + padding * 2,
 		height: maxY + padding * 2,
@@ -362,10 +362,10 @@ function determineEdgeSides(
 	const fromCenterY = fromLayout.y + fromLayout.height / 2;
 	const toCenterX = toLayout.x + toLayout.width / 2;
 	const toCenterY = toLayout.y + toLayout.height / 2;
-	
+
 	const deltaX = toCenterX - fromCenterX;
 	const deltaY = toCenterY - fromCenterY;
-	
+
 	// Determine primary direction
 	if (Math.abs(deltaX) > Math.abs(deltaY)) {
 		// Horizontal connection
@@ -390,7 +390,7 @@ function determineEdgeSides(
 
 /**
  * Create a group with multiple nodes inside it and connect them
- * 
+ *
  * @param canvas - Canvas instance
  * @param parsedNodes - Array of parsed nodes with content
  * @param options - Configuration options
@@ -412,7 +412,7 @@ export async function createGroupWithNodes(
 	if (!canvas || parsedNodes.length === 0) {
 		return null;
 	}
-	
+
 	const {
 		groupLabel = "AI Generated Group",
 		groupColor = "4",
@@ -422,21 +422,21 @@ export async function createGroupWithNodes(
 		edgeLabel,
 		connections = [],
 	} = options;
-	
+
 	// If only one node, don't create a group, just create a single node
 	if (parsedNodes.length === 1) {
 		return null;
 	}
-	
+
 	// Calculate layouts
 	const nodeContents = parsedNodes.map(n => n.content);
 	const layouts = calculateSmartLayout(nodeContents, { nodeSpacing });
 	const groupBounds = calculateGroupBounds(layouts, groupPadding);
-	
+
 	// Determine group position
 	let groupX: number;
 	let groupY: number;
-	
+
 	if (parentNode) {
 		// Position relative to parent node
 		groupX = parentNode.x;
@@ -448,11 +448,11 @@ export async function createGroupWithNodes(
 		// @ts-expect-error
 		groupY = canvas.y - groupBounds.height / 2;
 	}
-	
+
 	// Create group node using importData (similar to how edges are created)
 	const data = canvas.getData();
 	const groupId = randomHexString(16);
-	
+
 	const groupNodeData = {
 		id: groupId,
 		type: "group",
@@ -463,7 +463,7 @@ export async function createGroupWithNodes(
 		height: groupBounds.height,
 		color: groupColor,
 	};
-	
+
 	// Create text nodes with absolute positions
 	const textNodes = parsedNodes.map((node, index) => {
 		const layout = layouts[index];
@@ -477,63 +477,63 @@ export async function createGroupWithNodes(
 			height: layout.height,
 		};
 	});
-	
+
 	// Import all nodes at once
 	canvas.importData({
 		nodes: [...data.nodes, groupNodeData, ...textNodes],
 		edges: data.edges,
 	});
-	
+
 	await canvas.requestFrame();
-	
+
 	// Get the created group node and text nodes
 	const groupNode = canvas.nodes.get(groupId);
 	const createdTextNodes: CanvasNode[] = [];
-	
+
 	for (const textNodeData of textNodes) {
 		const node = canvas.nodes.get(textNodeData.id);
 		if (node) {
 			createdTextNodes.push(node);
 		}
 	}
-	
+
 	if (!groupNode) {
 		return null;
 	}
-	
+
 	// Create edges between nodes based on connections
 	if (connections.length > 0) {
 		console.log(`[GroupGenerator] Creating ${connections.length} connections between nodes`);
 	}
-	
+
 	for (const connection of connections) {
 		if (connection.fromIndex >= 0 && connection.fromIndex < createdTextNodes.length &&
 			connection.toIndex >= 0 && connection.toIndex < createdTextNodes.length) {
-			
+
 			const fromNode = createdTextNodes[connection.fromIndex];
 			const toNode = createdTextNodes[connection.toIndex];
-			
+
 			if (fromNode && toNode) {
 				// Determine edge sides based on node positions
 				const fromLayout = layouts[connection.fromIndex];
 				const toLayout = layouts[connection.toIndex];
 				const { fromSide, toSide } = determineEdgeSides(fromLayout, toLayout);
-				
-				console.log(`[GroupGenerator] Creating edge: ${connection.fromIndex + 1} -> ${connection.toIndex + 1}${connection.label ? ` (${connection.label})` : ''}`);
-				
+
+				console.log(`[GroupGenerator] Creating edge: ${connection.fromIndex + 1} -> ${connection.toIndex + 1}${connection.label ? ` (${connection.label})` : ""}`);
+
 				// Create edge
 				const fromEdge: CanvasEdgeIntermediate = {
 					fromOrTo: "from",
 					side: fromSide,
 					node: fromNode,
 				};
-				
+
 				const toEdge: CanvasEdgeIntermediate = {
 					fromOrTo: "to",
 					side: toSide,
 					node: toNode,
 				};
-				
+
 				addEdge(
 					canvas,
 					randomHexString(16),
@@ -551,7 +551,7 @@ export async function createGroupWithNodes(
 			console.warn(`[GroupGenerator] Invalid connection indices: ${connection.fromIndex + 1} -> ${connection.toIndex + 1} (valid range: 1-${createdTextNodes.length})`);
 		}
 	}
-	
+
 	// Create edge from parent node to group if parent exists
 	if (parentNode && groupNode) {
 		addEdge(
@@ -573,7 +573,7 @@ export async function createGroupWithNodes(
 			}
 		);
 	}
-	
+
 	return groupNode;
 }
 
@@ -585,79 +585,79 @@ export class IncrementalMarkdownParser {
 	private buffer: string = "";
 	private lastParsedIndex: number = 0;
 	private detectedNodeCount: number = 0;
-	
+
 	/**
 	 * Append new chunk to buffer
 	 */
 	public append(chunk: string): void {
 		this.buffer += chunk;
 	}
-	
+
 	/**
 	 * Get the unprocessed content (for preview display)
 	 */
 	public getUnprocessedContent(): string {
 		return this.buffer.substring(this.lastParsedIndex);
 	}
-	
+
 	/**
 	 * Get full buffer content
 	 */
 	public getFullContent(): string {
 		return this.buffer;
 	}
-	
+
 	/**
 	 * Detect and extract complete nodes
 	 * Returns parsed nodes that haven't been returned before
 	 */
 	public detectCompleteNodes(): ParsedNode[] {
 		const nodes: ParsedNode[] = [];
-		
+
 		// Find all ---[NODE]--- separators
 		const separatorRegex = /---\s*\[NODE\]\s*---/g;
 		const separatorPositions: number[] = [];
-		
+
 		let match: RegExpExecArray | null;
 		while ((match = separatorRegex.exec(this.buffer)) !== null) {
 			separatorPositions.push(match.index);
 		}
-		
+
 		// If no separators found yet, return empty
 		if (separatorPositions.length === 0) {
 			return nodes;
 		}
-		
+
 		// Parse nodes between separators
 		let currentPos = this.lastParsedIndex;
-		
+
 		for (let i = 0; i < separatorPositions.length; i++) {
 			const sepPos = separatorPositions[i];
-			
+
 			// Only process separators after lastParsedIndex
 			if (sepPos <= this.lastParsedIndex) {
 				continue;
 			}
-			
+
 			// Extract content before this separator
 			const content = this.buffer.substring(currentPos, sepPos).trim();
-			
+
 			if (content) {
 				// Parse the node
 				const node = this.parseNode(content);
 				nodes.push(node);
 				this.detectedNodeCount++;
 			}
-			
+
 			// Move past the separator
 			const separatorLength = this.buffer.substring(sepPos).match(/^---\s*\[NODE\]\s*---/)?.[0].length || 0;
 			currentPos = sepPos + separatorLength;
 			this.lastParsedIndex = currentPos;
 		}
-		
+
 		return nodes;
 	}
-	
+
 	/**
 	 * Detect connections section
 	 * Returns connection info if found
@@ -666,68 +666,68 @@ export class IncrementalMarkdownParser {
 		// Look for ---[CONNECTIONS]--- section
 		const connectionPattern = /---\s*\[CONNECTIONS\]\s*---\s*\n([\s\S]*?)(?:\n\n---\s*\[NODE\]\s*---|$)/i;
 		const match = this.buffer.match(connectionPattern);
-		
+
 		if (!match || !match[1]) {
 			return [];
 		}
-		
+
 		const connectionsText = match[1].trim();
 		const connections: ConnectionInfo[] = [];
-		
+
 		// Parse connection lines
-		const lines = connectionsText.split('\n');
+		const lines = connectionsText.split("\n");
 		for (const line of lines) {
 			const trimmedLine = line.trim();
-			if (!trimmedLine || trimmedLine.startsWith('#')) {
+			if (!trimmedLine || trimmedLine.startsWith("#")) {
 				continue;
 			}
-			
+
 			const connectionMatch = trimmedLine.match(/^(\d+)\s*->\s*(\d+)(?:\s*:\s*(.+))?/);
 			if (!connectionMatch) {
 				continue;
 			}
-			
+
 			const fromIndex = parseInt(connectionMatch[1], 10) - 1;
 			const toIndex = parseInt(connectionMatch[2], 10) - 1;
 			let label: string | undefined;
-			
+
 			if (connectionMatch[3]) {
-				label = connectionMatch[3].trim().replace(/^["']|["']$/g, '');
+				label = connectionMatch[3].trim().replace(/^["']|["']$/g, "");
 			}
-			
+
 			connections.push({ fromIndex, toIndex, label });
 		}
-		
+
 		return connections;
 	}
-	
+
 	/**
 	 * Parse a single node's content
 	 */
 	private parseNode(content: string): ParsedNode {
 		// Try to extract title from first line if it's a header
-		const lines = content.split('\n');
+		const lines = content.split("\n");
 		let title: string | undefined;
 		let nodeContent = content;
-		
+
 		if (lines.length > 0) {
 			const firstLine = lines[0].trim();
-			
+
 			// Check if first line is a markdown header
 			const headerMatch = firstLine.match(/^#+\s+(.+)$/);
 			if (headerMatch) {
 				title = headerMatch[1];
 				// Remove header from content
-				nodeContent = lines.slice(1).join('\n').trim();
+				nodeContent = lines.slice(1).join("\n").trim();
 			}
 		}
-		
+
 		return {
 			title,
 			content: nodeContent || content, // Fallback to original content if empty
 		};
 	}
-	
+
 	/**
 	 * Get the number of nodes detected so far
 	 */

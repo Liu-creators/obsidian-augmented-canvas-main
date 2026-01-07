@@ -1,6 +1,6 @@
 /**
  * Property-Based Tests for noteGenerator routing logic
- * 
+ *
  * **Feature: group-regenerate-fix**
  * Tests the routing correctness between Node and Group targets
  */
@@ -33,12 +33,12 @@ function createMockNode(type: string): MockCanvasNode {
 		height: 100,
 		getData: () => ({ type }),
 	};
-	
+
 	// Only non-group nodes have setText
 	if (type !== "group") {
 		node.setText = jest.fn();
 	}
-	
+
 	return node;
 }
 
@@ -60,8 +60,8 @@ describe("noteGenerator - Routing Property Tests", () => {
 	/**
 	 * **Feature: group-regenerate-fix, Property 2: Routing Correctness**
 	 * **Validates: Requirements 1.2, 1.3**
-	 * 
-	 * For any target element in a regeneration action, the system routes to 
+	 *
+	 * For any target element in a regeneration action, the system routes to
 	 * group regeneration logic if and only if isGroup(target) returns true,
 	 * otherwise it routes to node regeneration logic.
 	 */
@@ -79,7 +79,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 				fc.property(nodeTypeGen, (nodeType) => {
 					const mockNode = createMockNode(nodeType);
 					const routingResult = simulateRouting(mockNode);
-					
+
 					// Routing should be "group" iff nodeType is "group"
 					const expectedRouting = nodeType === "group" ? "group" : "node";
 					return routingResult === expectedRouting;
@@ -93,7 +93,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 				fc.property(fc.constant("group"), (nodeType) => {
 					const mockNode = createMockNode(nodeType);
 					const routingResult = simulateRouting(mockNode);
-					
+
 					// Group nodes should route to "group" logic
 					// and should NOT have setText method called
 					return routingResult === "group" && mockNode.setText === undefined;
@@ -113,7 +113,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 				fc.property(nonGroupTypes, (nodeType) => {
 					const mockNode = createMockNode(nodeType);
 					const routingResult = simulateRouting(mockNode);
-					
+
 					// Non-group nodes should route to "node" logic
 					// and should have setText method available
 					return routingResult === "node" && typeof mockNode.setText === "function";
@@ -142,7 +142,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 				fc.property(allNodeTypes, (nodeType) => {
 					const mockNode = createMockNode(nodeType);
 					const result = isGroup(mockNode as any);
-					
+
 					// isGroup should return true iff type is "group"
 					return result === (nodeType === "group");
 				}),
@@ -154,8 +154,8 @@ describe("noteGenerator - Routing Property Tests", () => {
 	/**
 	 * **Feature: group-regenerate-fix, Property 4: Group setText Avoidance (Core Bug Fix)**
 	 * **Validates: Requirements 3.1**
-	 * 
-	 * For any regeneration where the target is a Group, the setText() method 
+	 *
+	 * For any regeneration where the target is a Group, the setText() method
 	 * should never be called on the Group object.
 	 */
 	describe("Property 4: Group setText Avoidance", () => {
@@ -172,7 +172,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 		 */
 		function createMockGroupWithSetTextTracking(bounds: { x: number; y: number; width: number; height: number }) {
 			let setTextCalled = false;
-			
+
 			const groupNode = {
 				id: Math.random().toString(36).substring(7),
 				x: bounds.x,
@@ -186,7 +186,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 				},
 				wasSetTextCalled: () => setTextCalled,
 			};
-			
+
 			return groupNode;
 		}
 
@@ -197,7 +197,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 		function simulateGroupRegeneration(groupNode: ReturnType<typeof createMockGroupWithSetTextTracking>) {
 			// The actual implementation routes to regenerateGroup() which does NOT call setText
 			// This test verifies that the routing logic prevents setText from being called
-			
+
 			if (isGroup(groupNode as any)) {
 				// Group path: regenerateGroup() is called, which does NOT call setText
 				// The function clears child nodes and creates new ones instead
@@ -214,7 +214,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 				fc.property(groupBoundsGen, (bounds) => {
 					const mockGroup = createMockGroupWithSetTextTracking(bounds);
 					const result = simulateGroupRegeneration(mockGroup);
-					
+
 					// For group targets:
 					// 1. Should route to group regeneration logic
 					// 2. setText should NOT be called
@@ -228,13 +228,13 @@ describe("noteGenerator - Routing Property Tests", () => {
 			fc.assert(
 				fc.property(groupBoundsGen, (bounds) => {
 					const mockGroup = createMockGroupWithSetTextTracking(bounds);
-					
+
 					// Verify isGroup returns true for all group configurations
 					const isGroupResult = isGroup(mockGroup as any);
-					
+
 					// Verify routing goes to group path
 					const routingResult = simulateRouting(mockGroup as any);
-					
+
 					return isGroupResult === true && routingResult === "group";
 				}),
 				{ numRuns: 100 }
@@ -245,8 +245,8 @@ describe("noteGenerator - Routing Property Tests", () => {
 	/**
 	 * **Feature: group-regenerate-fix, Property 5: Group Position/Dimension Preservation**
 	 * **Validates: Requirements 3.3**
-	 * 
-	 * For any group regeneration, the group container's x, y, width, and height 
+	 *
+	 * For any group regeneration, the group container's x, y, width, and height
 	 * values should remain unchanged after regeneration completes.
 	 */
 	describe("Property 5: Group Position/Dimension Preservation", () => {
@@ -286,14 +286,14 @@ describe("noteGenerator - Routing Property Tests", () => {
 				width: groupNode.width,
 				height: groupNode.height,
 			};
-			
+
 			// Simulate regeneration process
 			// The actual implementation:
 			// 1. Stores group bounds at start
 			// 2. Clears child nodes
 			// 3. Creates new child nodes WITHIN the existing bounds
 			// 4. Never modifies the group container itself
-			
+
 			// After regeneration, group bounds should be unchanged
 			const finalBounds = {
 				x: groupNode.x,
@@ -301,7 +301,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 				width: groupNode.width,
 				height: groupNode.height,
 			};
-			
+
 			return {
 				originalBounds: { ...groupNode, ...originalBounds } as any,
 				finalBounds: { ...groupNode, ...finalBounds } as any,
@@ -313,7 +313,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 				fc.property(groupBoundsGen, (bounds) => {
 					const mockGroup = createMockGroupWithBounds(bounds);
 					const { originalBounds, finalBounds } = simulateRegenerateGroupBoundsPreservation(mockGroup);
-					
+
 					// All bounds should be preserved
 					return (
 						originalBounds.x === finalBounds.x &&
@@ -330,7 +330,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 			fc.assert(
 				fc.property(groupBoundsGen, (bounds) => {
 					const mockGroup = createMockGroupWithBounds(bounds);
-					
+
 					// Verify the bounds storage logic
 					const storedBounds = {
 						x: mockGroup.x,
@@ -338,7 +338,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 						width: mockGroup.width,
 						height: mockGroup.height,
 					};
-					
+
 					// Stored bounds should match original
 					return (
 						storedBounds.x === bounds.x &&
@@ -380,7 +380,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 				fc.property(edgeCaseBoundsGen, (bounds) => {
 					const mockGroup = createMockGroupWithBounds(bounds);
 					const { originalBounds, finalBounds } = simulateRegenerateGroupBoundsPreservation(mockGroup);
-					
+
 					// Bounds should be preserved even for edge cases
 					return (
 						originalBounds.x === finalBounds.x &&
@@ -397,7 +397,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 	/**
 	 * **Feature: group-regenerate-fix, Property 8: Error Recovery Content Preservation**
 	 * **Validates: Requirements 4.2**
-	 * 
+	 *
 	 * For any group regeneration that encounters an error during AI streaming,
 	 * the original group contents should be preserved (not deleted).
 	 */
@@ -433,7 +433,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 			// Track deletion state (mirrors the actual implementation)
 			let deletedOriginals = false;
 			let preservedNodes = [...originalChildNodes];
-			
+
 			// Simulate the streaming process with error at different points
 			try {
 				// Simulate streamResponse callback behavior
@@ -442,24 +442,24 @@ describe("noteGenerator - Routing Property Tests", () => {
 					// deletedOriginals is still false, so originals are preserved
 					throw new Error("Simulated error before first chunk");
 				}
-				
+
 				// First chunk received - this is when deletion happens
 				if (!deletedOriginals) {
 					// In actual implementation: for (const node of originalChildNodes) { canvas.removeNode(node); }
 					deletedOriginals = true;
 					preservedNodes = []; // Nodes are deleted
 				}
-				
+
 				if (errorTiming === "after_first_chunk" || errorTiming === "mid_stream") {
 					// Error occurs after deletion
 					throw new Error("Simulated error after deletion");
 				}
-				
+
 			} catch (error) {
 				// Error handling - check if originals were preserved
 				// In actual implementation, if !deletedOriginals, content is preserved
 			}
-			
+
 			return {
 				deletedOriginals,
 				originalNodesPreserved: !deletedOriginals,
@@ -471,7 +471,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 			fc.assert(
 				fc.property(childNodesGen, (childNodes) => {
 					const result = simulateErrorRecovery(childNodes, "before_first_chunk");
-					
+
 					// When error occurs before first chunk:
 					// - deletedOriginals should be false
 					// - originalNodesPreserved should be true
@@ -490,7 +490,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 			fc.assert(
 				fc.property(childNodesGen, (childNodes) => {
 					const result = simulateErrorRecovery(childNodes, "after_first_chunk");
-					
+
 					// When error occurs after first chunk:
 					// - deletedOriginals should be true (deletion already happened)
 					// - originalNodesPreserved should be false
@@ -509,7 +509,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 			fc.assert(
 				fc.property(variableChildNodesGen, errorTimingGen, (childNodes, errorTiming) => {
 					const result = simulateErrorRecovery(childNodes, errorTiming);
-					
+
 					// The two-phase deletion logic should work correctly:
 					// - If error before first chunk: originals preserved
 					// - If error after first chunk: originals deleted
@@ -529,13 +529,13 @@ describe("noteGenerator - Routing Property Tests", () => {
 					// Simulate the exact two-phase deletion logic from regenerateGroup:
 					// 1. Store references to existing nodes (don't delete yet)
 					// 2. Only delete after successful AI response starts
-					
+
 					const originalChildNodes = [...childNodes];
-					let deletedOriginals = false;
-					
+					const deletedOriginals = false;
+
 					// Simulate error before any chunk
 					const errorOccurredBeforeChunk = true;
-					
+
 					if (errorOccurredBeforeChunk) {
 						// Error occurred before deletion
 						// Original content should be preserved
@@ -544,7 +544,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 							originalChildNodes.length === childNodes.length
 						);
 					}
-					
+
 					return true;
 				}),
 				{ numRuns: 100 }
@@ -555,7 +555,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 			fc.assert(
 				fc.property(fc.constant([] as Array<{ id: string; content: string; x: number; y: number }>), errorTimingGen, (emptyChildNodes, errorTiming) => {
 					const result = simulateErrorRecovery(emptyChildNodes, errorTiming);
-					
+
 					// Even with no child nodes, the logic should work correctly
 					// Before first chunk: preservedNodeCount should be 0 (empty group)
 					if (errorTiming === "before_first_chunk") {
@@ -571,17 +571,11 @@ describe("noteGenerator - Routing Property Tests", () => {
 	/**
 	 * **Feature: group-regenerate-fix, Property 7: Edge Label Prompt Usage**
 	 * **Validates: Requirements 3.4, 5.1, 5.3**
-	 * 
-	 * For any regeneration action with an edge that has a label, that label 
+	 *
+	 * For any regeneration action with an edge that has a label, that label
 	 * should be included in the AI messages array as the user prompt.
 	 */
 	describe("Property 7: Edge Label Prompt Usage", () => {
-		// Generator for edge labels
-		const edgeLabelGen = fc.oneof(
-			fc.string({ minLength: 1, maxLength: 200 }),
-			fc.constant(undefined)
-		);
-
 		// Generator for existing messages
 		const messageGen = fc.record({
 			role: fc.oneof(fc.constant("user"), fc.constant("assistant"), fc.constant("system")),
@@ -610,11 +604,11 @@ describe("noteGenerator - Routing Property Tests", () => {
 			//         content: edgeLabel,
 			//     });
 			// }
-			
+
 			const messagesWithEdgeLabel = [...messages];
 			let edgeLabelIncluded = false;
 			let edgeLabelPosition: number | null = null;
-			
+
 			if (edgeLabel) {
 				messagesWithEdgeLabel.push({
 					role: "user",
@@ -623,7 +617,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 				edgeLabelIncluded = true;
 				edgeLabelPosition = messagesWithEdgeLabel.length - 1;
 			}
-			
+
 			return {
 				finalMessages: messagesWithEdgeLabel,
 				edgeLabelIncluded,
@@ -637,7 +631,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 			fc.assert(
 				fc.property(messagesGen, nonEmptyEdgeLabelGen, (messages, edgeLabel) => {
 					const result = simulateEdgeLabelAddition(messages, edgeLabel);
-					
+
 					// When edge label is provided:
 					// 1. edgeLabelIncluded should be true
 					// 2. finalMessages should contain the edge label
@@ -657,7 +651,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 			fc.assert(
 				fc.property(messagesGen, (messages) => {
 					const result = simulateEdgeLabelAddition(messages, undefined);
-					
+
 					// When edge label is undefined:
 					// 1. edgeLabelIncluded should be false
 					// 2. finalMessages should be same length as original
@@ -678,7 +672,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 			fc.assert(
 				fc.property(messagesGen, nonEmptyEdgeLabelGen, (messages, edgeLabel) => {
 					const result = simulateEdgeLabelAddition(messages, edgeLabel);
-					
+
 					// The edge label message should have role "user"
 					const edgeLabelMessage = result.finalMessages[result.edgeLabelPosition!];
 					return edgeLabelMessage.role === "user";
@@ -693,7 +687,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 			fc.assert(
 				fc.property(messagesGen, nonEmptyEdgeLabelGen, (messages, edgeLabel) => {
 					const result = simulateEdgeLabelAddition(messages, edgeLabel);
-					
+
 					// Original messages should be preserved (not mutated)
 					// Check that all original messages are still present
 					for (let i = 0; i < messages.length; i++) {
@@ -721,7 +715,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 			fc.assert(
 				fc.property(messagesGen, specialCharEdgeLabelGen, (messages, edgeLabel) => {
 					const result = simulateEdgeLabelAddition(messages, edgeLabel);
-					
+
 					// Edge label should be included exactly as provided
 					return (
 						result.edgeLabelIncluded === true &&
@@ -738,7 +732,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 			fc.assert(
 				fc.property(messagesGen, nonEmptyEdgeLabelGen, (messages, edgeLabel) => {
 					const result = simulateEdgeLabelAddition(messages, edgeLabel);
-					
+
 					// Edge label should be at the last position
 					return result.edgeLabelPosition === result.finalMessages.length - 1;
 				}),
@@ -753,7 +747,7 @@ describe("noteGenerator - Routing Property Tests", () => {
 				fc.property(nonEmptyEdgeLabelGen, (edgeLabel) => {
 					const emptyMessages: Array<{ role: string; content: string }> = [];
 					const result = simulateEdgeLabelAddition(emptyMessages, edgeLabel);
-					
+
 					// With empty messages, edge label should be the only message
 					return (
 						result.finalMessages.length === 1 &&

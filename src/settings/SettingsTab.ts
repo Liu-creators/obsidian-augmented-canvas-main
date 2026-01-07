@@ -108,7 +108,7 @@ export class SettingsTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("默认系统提示词 (System Prompt)")
 			.setDesc(
-				`每次向 API 发送请求时附带的系统提示词。\n（注意：您可以通过在笔记流开头添加一个以 'SYSTEM PROMPT' 开头的笔记来覆盖此设置。该笔记的剩余内容将作为系统提示词。）`
+				"每次向 API 发送请求时附带的系统提示词。\n（注意：您可以通过在笔记流开头添加一个以 'SYSTEM PROMPT' 开头的笔记来覆盖此设置。该笔记的剩余内容将作为系统提示词。）"
 			)
 			.addTextArea((component) => {
 				component.inputEl.rows = 6;
@@ -124,7 +124,7 @@ export class SettingsTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("闪卡系统提示词")
-			.setDesc(`用于生成闪卡文件的系统提示词。`)
+			.setDesc("用于生成闪卡文件的系统提示词。")
 			.addTextArea((component) => {
 				component.inputEl.rows = 6;
 				component.inputEl.addClass("augmented-canvas-settings-prompt");
@@ -138,7 +138,7 @@ export class SettingsTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("相关问题系统提示词")
 			.setDesc(
-				`用于“插入相关问题”命令生成相关问题的系统提示词。`
+				"用于“插入相关问题”命令生成相关问题的系统提示词。"
 			)
 			.addTextArea((component) => {
 				component.inputEl.rows = 6;
@@ -155,7 +155,7 @@ export class SettingsTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("插入相关问题时参考的文件数量")
 			.setDesc(
-				'“插入相关问题”命令在生成时考虑的文件数量。必须是正整数。'
+				"“插入相关问题”命令在生成时考虑的文件数量。必须是正整数。"
 			)
 			.addText((text) =>
 				text
@@ -304,7 +304,7 @@ export class SettingsTab extends PluginSettingTab {
 
 		// ===== Layout Preferences Section =====
 		containerEl.createEl("h3", { text: "智能布局设置" });
-		
+
 		new Setting(containerEl)
 			.setName("布局模式")
 			.setDesc("选择新节点的布局模式：智能（自动选择最佳方向）、横向、纵向或辐射状")
@@ -365,7 +365,7 @@ export class SettingsTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("方向优先级")
 			.setDesc(
-				"设置智能布局的方向优先顺序。当前顺序：" + 
+				"设置智能布局的方向优先顺序。当前顺序：" +
 				this.plugin.settings.layoutPreferences.directionPriority.map(d => {
 					const dict: Record<string, string> = {
 						"right": "右",
@@ -412,7 +412,7 @@ export class SettingsTab extends PluginSettingTab {
 			.setName("添加系统提示词")
 			.setClass("augmented-canvas-setting-item")
 			.setDesc(
-				`创建自定义系统提示词，以便在执行“插入系统提示词”或“在文件夹上运行系统提示词”等命令时快速选择。在下方提供名称和提示词内容。`
+				"创建自定义系统提示词，以便在执行“插入系统提示词”或“在文件夹上运行系统提示词”等命令时快速选择。在下方提供名称和提示词内容。"
 			);
 
 		const nameInput = new TextComponent(setting.controlEl);
@@ -431,15 +431,15 @@ export class SettingsTab extends PluginSettingTab {
 				.setIcon("lucide-plus")
 				.setTooltip("添加")
 				.onClick(async (buttonEl: any) => {
-					let name = nameInput.inputEl.value;
+					const name = nameInput.inputEl.value;
 					const prompt = promptInput.inputEl.value;
 
 					if (!name || !prompt) {
 						name && !prompt
 							? new Notice("缺少提示词")
 							: !name && prompt
-							? new Notice("缺少名称")
-							: new Notice("缺少内容"); // else
+								? new Notice("缺少名称")
+								: new Notice("缺少内容"); // else
 						return;
 					}
 
@@ -493,7 +493,7 @@ export class SettingsTab extends PluginSettingTab {
 					.setIcon("lucide-save")
 					.setTooltip("保存")
 					.onClick(async (buttonEl: any) => {
-						let name = nameInput.inputEl.value;
+						const name = nameInput.inputEl.value;
 						const prompt = promptInput.inputEl.value;
 
 						// console.log({ name, prompt });
@@ -502,9 +502,9 @@ export class SettingsTab extends PluginSettingTab {
 								(systemPrompt2: SystemPrompt) =>
 									systemPrompt2.id === systemPrompt.id
 										? {
-												...systemPrompt2,
-												act: name,
-												prompt,
+											...systemPrompt2,
+											act: name,
+											prompt,
 										  }
 										: systemPrompt2
 							);
@@ -518,7 +518,7 @@ export class SettingsTab extends PluginSettingTab {
 					.setIcon("lucide-trash")
 					.setTooltip("删除")
 					.onClick(async (buttonEl: any) => {
-						let name = nameInput.inputEl.value;
+						const name = nameInput.inputEl.value;
 						const prompt = promptInput.inputEl.value;
 
 						// console.log({ name, prompt });

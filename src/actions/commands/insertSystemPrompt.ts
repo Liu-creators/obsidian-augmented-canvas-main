@@ -17,11 +17,12 @@ ${systemPrompt.prompt.trim()}
 
 	const NODE_WIDTH = 800;
 	const NODE_HEIGHT = 300;
-	const newNode = createNode(canvas, {
+	// 创建节点但不需要保存引用
+	createNode(canvas, {
 		pos: {
-			// @ts-expect-error
+			// @ts-expect-error - canvas.x 是内部属性
 			x: canvas.x - NODE_WIDTH / 2,
-			// @ts-expect-error
+			// @ts-expect-error - canvas.y 是内部属性
 			y: canvas.y - NODE_HEIGHT / 2,
 		},
 		// position: "left",

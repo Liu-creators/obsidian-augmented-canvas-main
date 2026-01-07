@@ -1,4 +1,4 @@
-import { Plugin, Modal, App, Notice, Setting, Command } from "obsidian";
+import { Modal, App } from "obsidian";
 
 export class InputModal extends Modal {
 	label: string;
@@ -18,10 +18,10 @@ export class InputModal extends Modal {
 	}
 
 	onOpen() {
-		let { contentEl } = this;
+		const { contentEl } = this;
 		contentEl.className = "augmented-canvas-modal-container";
 
-		let inputEl = contentEl.createEl("input");
+		const inputEl = contentEl.createEl("input");
 		inputEl.className = "augmented-canvas-modal-input";
 		inputEl.placeholder = this.label;
 		this.inputEl = inputEl;
@@ -39,7 +39,7 @@ export class InputModal extends Modal {
 		});
 
 		// Create and append a submit button
-		let submitBtn = contentEl.createEl("button", {
+		const submitBtn = contentEl.createEl("button", {
 			text: this.buttonLabel,
 		});
 		submitBtn.addEventListener("click", () => {

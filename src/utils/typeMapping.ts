@@ -6,7 +6,7 @@
 /**
  * Node type enumeration as per PRD v2.0 Section 2.2
  */
-export type NodeType = 
+export type NodeType =
 	| "default"    // 默认文本/详情
 	| "concept"    // 核心概念
 	| "step"       // 步骤/技术实现
@@ -39,7 +39,7 @@ export const TYPE_TO_COLOR: Record<NodeType, string | null> = {
 /**
  * Get Obsidian color code for a given node type
  * Returns null (default gray) for unknown types as per PRD Section 4.2
- * 
+ *
  * @param type - Node type string
  * @returns Obsidian color code or null
  */
@@ -47,14 +47,14 @@ export function getColorForType(type: string | undefined): string | null {
 	if (!type) {
 		return null; // Default fallback
 	}
-	
+
 	const normalizedType = type.toLowerCase() as NodeType;
-	
+
 	// Check if it's a valid type
 	if (normalizedType in TYPE_TO_COLOR) {
 		return TYPE_TO_COLOR[normalizedType];
 	}
-	
+
 	// Fallback to default for unknown types
 	console.warn(`[TypeMapping] Unknown node type: "${type}", using default color`);
 	return null;
@@ -63,9 +63,9 @@ export function getColorForType(type: string | undefined): string | null {
 /**
  * Get Obsidian color code for a given node type, with guaranteed non-null result
  * Always returns a valid color code to ensure nodes have solid backgrounds
- * 
+ *
  * Requirements: 11.1 - All created nodes must have a solid background color
- * 
+ *
  * @param type - Node type string
  * @returns Obsidian color code (never null)
  */
@@ -76,7 +76,7 @@ export function getColorForTypeWithDefault(type: string | undefined): string {
 
 /**
  * Validate if a string is a valid NodeType
- * 
+ *
  * @param type - Type string to validate
  * @returns True if valid, false otherwise
  */
@@ -95,7 +95,7 @@ export function isValidNodeType(type: string): type is NodeType {
 
 /**
  * Get human-readable description for a node type
- * 
+ *
  * @param type - Node type
  * @returns Description string
  */
@@ -114,7 +114,7 @@ export function getTypeDescription(type: NodeType): string {
 
 /**
  * Get all valid node types
- * 
+ *
  * @returns Array of all valid node types
  */
 export function getAllNodeTypes(): NodeType[] {

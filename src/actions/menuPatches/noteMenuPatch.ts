@@ -25,10 +25,6 @@ export const handlePatchNoteMenu = async (
 	if (!buttonEl_AskQuestions.hasClass("has-active-menu")) {
 		buttonEl_AskQuestions.toggleClass("has-active-menu", true);
 		const menu = new Menu();
-		// const containingNodes =
-		// 	this.canvas.getContainingNodes(
-		// 		this.selection.bbox
-		// 	);
 
 		const node = <CanvasNode | undefined>(
 			Array.from(canvas.selection)?.first()
@@ -70,7 +66,7 @@ export const handlePatchNoteMenu = async (
 
 		handleCanvasMenu_Loaded(menu2, questions, async (question?: string) => {
 			if (!question) {
-				let modal = new CustomQuestionModal(
+				const modal = new CustomQuestionModal(
 					app,
 					(question2: string) => {
 						handleCallGPT_Question(

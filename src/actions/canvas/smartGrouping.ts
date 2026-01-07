@@ -59,7 +59,7 @@ VERIFICATION:
 
 /**
  * Smart Grouping: Create AI-driven groups for existing nodes
- * 
+ *
  * @param app - Obsidian app instance
  * @param settings - Plugin settings
  * @param selectedNodes - Array of selected canvas nodes to group
@@ -76,31 +76,31 @@ export async function smartGroupExistingNodes(
 		new Notice("请在插件设置中设置 DeepSeek API 密钥");
 		return;
 	}
-	
+
 	// Validate selection
 	if (!selectedNodes || selectedNodes.length < 2) {
 		new Notice("请选择至少 2 个节点以创建分组");
 		return;
 	}
-	
+
 	if (selectedNodes.length > 30) {
 		new Notice("选择的节点过多（最多 30 个）。请选择较少的节点。");
 		return;
 	}
-	
+
 	// Get active canvas
 	const maybeCanvasView = app.workspace.getActiveViewOfType(ItemView) as CanvasView | null;
 	const canvas = maybeCanvasView?.canvas;
-	
+
 	if (!canvas) {
 		new Notice("未找到活动的画布。请打开一个画布视图。");
 		return;
 	}
-	
+
 	try {
 		// Build nodes list for AI
 		const nodesList = await buildNodesListForAI(selectedNodes);
-		
+
 		// Build prompt
 		const prompt = `User Instruction: "${userInstruction}"
 
@@ -108,7 +108,7 @@ Input Nodes:
 ${nodesList}
 
 Organize these nodes into logical groups using <group> and <member> tags.`;
-		
+
 		const messages: any[] = [
 			{
 				role: "system",
@@ -119,12 +119,12 @@ Organize these nodes into logical groups using <group> and <member> tags.`;
 				content: prompt,
 			},
 		];
-		
+
 		new Notice(`Analyzing ${selectedNodes.length} nodes to create groups...`);
-		
+
 		// Stream AI response
 		let accumulatedResponse = "";
-		
+
 		await streamResponse(
 			settings.apiKey,
 			messages,
@@ -137,40 +137,40 @@ Organize these nodes into logical groups using <group> and <member> tags.`;
 				if (error) {
 					throw error;
 				}
-				
+
 				if (chunk) {
 					accumulatedResponse += chunk;
 				}
 			}
 		);
-		
+
 		// Parse XML response
 		if (!isXMLFormat(accumulatedResponse)) {
 			new Notice("AI response is not in XML format. Please try again.");
 			console.error("[SmartGrouping] Non-XML response:", accumulatedResponse);
 			return;
 		}
-		
+
 		const parseResult = parseXML(accumulatedResponse);
-		
+
 		if (!parseResult.success) {
 			new Notice(`Failed to parse AI response: ${parseResult.errors.join(", ")}`);
 			console.error("[SmartGrouping] Parse errors:", parseResult.errors);
 			return;
 		}
-		
+
 		const { groupsWithMembers } = parseResult.response;
-		
+
 		// Show warnings if any
 		if (parseResult.warnings.length > 0) {
 			console.warn("[SmartGrouping] Parse warnings:", parseResult.warnings);
 		}
-		
+
 		if (groupsWithMembers.length === 0) {
 			new Notice("AI did not generate any groups. Try rephrasing your instruction.");
 			return;
 		}
-		
+
 		// Validate and create groups
 		const createdCount = await createGroupsOnCanvas(
 			canvas,
@@ -178,15 +178,15 @@ Organize these nodes into logical groups using <group> and <member> tags.`;
 			selectedNodes,
 			settings
 		);
-		
+
 		if (createdCount > 0) {
-			new Notice(`✓ Successfully created ${createdCount} group${createdCount > 1 ? 's' : ''}!`);
+			new Notice(`✓ Successfully created ${createdCount} group${createdCount > 1 ? "s" : ""}!`);
 		} else {
 			new Notice("Failed to create groups. Please try again.");
 		}
-		
+
 		await canvas.requestSave();
-		
+
 	} catch (error: any) {
 		const errorMessage = error?.message || error?.toString() || "Unknown error";
 		console.error("[SmartGrouping] Error:", error);
@@ -199,24 +199,24 @@ Organize these nodes into logical groups using <group> and <member> tags.`;
  */
 async function buildNodesListForAI(nodes: CanvasNode[]): Promise<string> {
 	const nodeDescriptions: string[] = [];
-	
+
 	for (const node of nodes) {
 		const content = await readNodeContent(node);
 		const nodeData = node.getData();
-		
+
 		// Truncate long content
 		const truncatedContent = content && content.length > 150
 			? content.substring(0, 150) + "..."
 			: content || "(empty)";
-		
+
 		const description = `- ID: ${node.id}
   Position: (${Math.round(node.x)}, ${Math.round(node.y)})
   Type: ${nodeData.type || "text"}
   Content: ${truncatedContent}`;
-		
+
 		nodeDescriptions.push(description);
 	}
-	
+
 	return nodeDescriptions.join("\n\n");
 }
 
@@ -232,14 +232,14 @@ async function createGroupsOnCanvas(
 	// Build ID to node map
 	const nodeMap = new Map<string, CanvasNode>();
 	selectedNodes.forEach(node => nodeMap.set(node.id, node));
-	
+
 	let createdCount = 0;
 	const data = canvas.getData();
-	
+
 	for (const group of groups) {
 		// Validate members exist
 		const memberNodes: CanvasNode[] = [];
-		
+
 		for (const memberId of group.members) {
 			const node = nodeMap.get(memberId);
 			if (node) {
@@ -248,15 +248,15 @@ async function createGroupsOnCanvas(
 				console.warn(`[SmartGrouping] Member node not found: ${memberId}`);
 			}
 		}
-		
+
 		if (memberNodes.length === 0) {
 			console.warn(`[SmartGrouping] Group "${group.title}" has no valid members, skipping`);
 			continue;
 		}
-		
+
 		// Calculate bounding box for the group
 		const bbox = calculateBoundingBox(memberNodes, settings.groupPadding || 60);
-		
+
 		// Create group node
 		const groupId = randomHexString(16);
 		const groupNodeData = {
@@ -269,27 +269,27 @@ async function createGroupsOnCanvas(
 			height: bbox.height,
 			color: settings.defaultGroupColor || "4",
 		};
-		
+
 		try {
 			// Import group using canvas.importData()
 			canvas.importData({
 				nodes: [...data.nodes, groupNodeData],
 				edges: data.edges,
 			});
-			
+
 			await canvas.requestFrame();
-			
+
 			createdCount++;
-			
+
 			console.log(
 				`[SmartGrouping] Created group "${group.title}" with ${memberNodes.length} members`
 			);
-			
+
 		} catch (error) {
 			console.error(`[SmartGrouping] Failed to create group "${group.title}":`, error);
 		}
 	}
-	
+
 	return createdCount;
 }
 
@@ -309,13 +309,13 @@ function calculateBoundingBox(
 	if (nodes.length === 0) {
 		return { x: 0, y: 0, width: 0, height: 0 };
 	}
-	
+
 	// Find min/max coordinates
 	const minX = Math.min(...nodes.map(n => n.x));
 	const minY = Math.min(...nodes.map(n => n.y));
 	const maxX = Math.max(...nodes.map(n => n.x + n.width));
 	const maxY = Math.max(...nodes.map(n => n.y + n.height));
-	
+
 	return {
 		x: minX - padding,
 		y: minY - padding,

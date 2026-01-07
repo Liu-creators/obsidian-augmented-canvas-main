@@ -1,4 +1,4 @@
-import { App, FuzzySuggestModal, TFile, TFolder } from "obsidian";
+import { App, FuzzySuggestModal, TFolder } from "obsidian";
 
 export default class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
 	onChoose: (systemPrompt: TFolder) => void;
@@ -21,7 +21,7 @@ export default class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
 		return folder.path;
 	}
 
-	onChooseItem(folder: TFolder, evt: MouseEvent | KeyboardEvent): void {
+	onChooseItem(folder: TFolder, _evt: MouseEvent | KeyboardEvent): void {
 		this.onChoose(folder);
 	}
 }

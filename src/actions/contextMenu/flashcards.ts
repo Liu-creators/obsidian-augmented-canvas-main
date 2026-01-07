@@ -53,11 +53,11 @@ ${settings.flashcardsSystemPrompt}`,
 
 	const content = `
 ${gptResponse.flashcards
-	.map(
-		(flashcard: { front: string; back: string }) =>
-			`${flashcard.front}::${flashcard.back}`
-	)
-	.join("\n\n")}
+		.map(
+			(flashcard: { front: string; back: string }) =>
+				`${flashcard.front}::${flashcard.back}`
+		)
+		.join("\n\n")}
 `.trim();
 
 	const FLASHCARDS_PATH = "Home/Flashcards";

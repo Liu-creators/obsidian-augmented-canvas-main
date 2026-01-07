@@ -1,15 +1,10 @@
 import {
 	App,
-	Canvas,
-	CanvasCoords,
 	ItemView,
-	Menu,
-	MenuItem,
-	TFile,
 	CanvasGroupNode,
 } from "obsidian";
-import { CanvasView, createNode } from "./obsidian/canvas-patches";
-import { readFileContent, readNodeContent } from "./obsidian/fileUtil";
+import { CanvasView } from "./obsidian/canvas-patches";
+import { readNodeContent } from "./obsidian/fileUtil";
 import { CanvasNode } from "./obsidian/canvas-internal";
 import { AugmentedCanvasSettings } from "./settings/AugmentedCanvasSettings";
 // from obsidian-chat-stream
@@ -46,7 +41,7 @@ export const createCanvasGroup = (
 
 	const NOTES_BY_ROW = 3;
 
-	let startPos = {
+	const startPos = {
 		// @ts-expect-error
 		x: canvas.x - ((NOTE_WIDTH + NOTE_GAP) * NOTES_BY_ROW) / 2,
 		// @ts-expect-error

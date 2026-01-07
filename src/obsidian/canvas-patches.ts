@@ -2,10 +2,10 @@ import { ItemView } from "obsidian";
 import { AllCanvasNodeData } from "obsidian/canvas";
 import { randomHexString } from "../utils";
 import { Canvas, CanvasNode, CreateNodeOptions } from "./canvas-internal";
-import { 
-	analyzeBestDirection, 
-	calculatePositionInDirection, 
-	getLayoutPreferences 
+import {
+	analyzeBestDirection,
+	calculatePositionInDirection,
+	getLayoutPreferences
 } from "../utils/spatialAnalyzer";
 import { AugmentedCanvasSettings } from "../settings/AugmentedCanvasSettings";
 
@@ -83,10 +83,10 @@ function determineEdgeSides(
 	const fromCenterY = fromNode.y + fromNode.height / 2;
 	const toCenterX = toNode.x + toNode.width / 2;
 	const toCenterY = toNode.y + toNode.height / 2;
-	
+
 	const deltaX = toCenterX - fromCenterX;
 	const deltaY = toCenterY - fromCenterY;
-	
+
 	// Determine primary direction
 	if (Math.abs(deltaX) > Math.abs(deltaY)) {
 		// Horizontal connection
@@ -112,7 +112,7 @@ function determineEdgeSides(
 /**
  * Create new node as descendant from the parent node.
  * Align and offset relative to siblings.
- * 
+ *
  * @param canvas - Canvas instance
  * @param nodeOptions - Options for creating the node
  * @param parentNode - Parent node to position relative to
@@ -142,8 +142,8 @@ export const createNode = (
 		? parentNode
 			? nodeOptions?.size?.height ||
 			  Math.max(
-					minHeight,
-					parentNode &&
+			  	minHeight,
+			  	parentNode &&
 						calcHeight({
 							text,
 							// parentHeight: parentNode.height
@@ -160,21 +160,21 @@ export const createNode = (
 	if (parentNode) {
 		// Check if smart positioning is enabled
 		const useSmartPositioning = settings && settings.layoutPreferences;
-		
+
 		if (useSmartPositioning) {
 			// ===== SMART POSITIONING =====
 			// Use spatial analyzer to find best direction
 			const preferences = getLayoutPreferences(settings);
 			const directionScores = analyzeBestDirection(canvas, parentNode, preferences);
 			const bestDirection = directionScores[0];
-			
+
 			console.log(`[SmartLayout] Best direction: ${bestDirection.direction} (score: ${bestDirection.score.toFixed(2)})`);
-			
+
 			// Use larger spacing if there's an edge label to prevent overlap
-			const spacing = edgeLabel 
+			const spacing = edgeLabel
 				? preferences.minNodeSpacing + 50  // Extra 50px for edge label
 				: preferences.minNodeSpacing;
-			
+
 			// Calculate position in best direction
 			const position = calculatePositionInDirection(
 				parentNode,
@@ -182,10 +182,10 @@ export const createNode = (
 				{ width, height: height || 200 },
 				spacing
 			);
-			
+
 			x = position.x;
 			y = position.y;
-			
+
 			// Adjust y for "left" position mode (center-based)
 			if (height) {
 				y = y + height * 0.5;
@@ -204,8 +204,8 @@ export const createNode = (
 			const farLeft = parentNode.y - parentNode.width * 5;
 			const siblingsRight = siblings?.length
 				? siblings.reduce(
-						(right, sib) => Math.max(right, sib.x + sib.width),
-						farLeft
+					(right, sib) => Math.max(right, sib.x + sib.width),
+					farLeft
 				  )
 				: undefined;
 			const priorSibling = siblings[siblings.length - 1];
@@ -232,18 +232,15 @@ export const createNode = (
 		nodeOptions.type === "file"
 			? //  @ts-expect-error
 			  canvas.createFileNode({
-					file: nodeOptions.file,
-					pos: { x, y },
-					// // position: "left",
-					// size: { height, width },
-					// focus: false,
+				file: nodeOptions.file,
+				pos: { x, y },
 			  })
 			: canvas.createTextNode({
-					pos: { x, y },
-					position: "left",
-					size: { height, width },
-					text,
-					focus: false,
+				pos: { x, y },
+				position: "left",
+				size: { height, width },
+				text,
+				focus: false,
 			  });
 
 	if (nodeData) {
@@ -254,16 +251,16 @@ export const createNode = (
 	canvas.addNode(newNode);
 
 	let edgeId: string | undefined;
-	
+
 	if (parentNode) {
 		edgeId = randomHexString(16);
-		
+
 		// Determine edge sides based on actual node positions
 		// This ensures edges connect correctly regardless of layout direction
 		const { fromSide, toSide } = determineEdgeSides(parentNode, newNode);
-		
+
 		console.log(`[SmartLayout] Edge sides: ${fromSide} -> ${toSide} (from node at ${parentNode.x},${parentNode.y} to node at ${newNode.x},${newNode.y})`);
-		
+
 		addEdge(
 			canvas,
 			edgeId,
@@ -323,7 +320,7 @@ export const addEdge = (
 	});
 
 	canvas.requestFrame();
-	
+
 	return edgeID;
 };
 

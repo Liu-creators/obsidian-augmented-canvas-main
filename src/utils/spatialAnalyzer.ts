@@ -78,8 +78,8 @@ export function getLayoutPreferences(
 		// Ensure minimum spacing is at least 100px for comfortable viewing
 		minNodeSpacing: Math.max(
 			100,
-			settings.layoutPreferences?.minNodeSpacing || 
-			settings.gridGap || 
+			settings.layoutPreferences?.minNodeSpacing ||
+			settings.gridGap ||
 			DEFAULT_LAYOUT_PREFERENCES.minNodeSpacing
 		),
 	};
@@ -189,42 +189,42 @@ function findNearestNodeInDirection(
 		let distance = 0;
 
 		switch (direction) {
-			case "right":
-				isInDirection = nodeCenterX > sourceCenterX;
-				if (isInDirection) {
-					distance = Math.sqrt(
-						Math.pow(nodeCenterX - sourceCenterX, 2) +
+		case "right":
+			isInDirection = nodeCenterX > sourceCenterX;
+			if (isInDirection) {
+				distance = Math.sqrt(
+					Math.pow(nodeCenterX - sourceCenterX, 2) +
 							Math.pow(nodeCenterY - sourceCenterY, 2)
-					);
-				}
-				break;
-			case "down":
-				isInDirection = nodeCenterY > sourceCenterY;
-				if (isInDirection) {
-					distance = Math.sqrt(
-						Math.pow(nodeCenterX - sourceCenterX, 2) +
+				);
+			}
+			break;
+		case "down":
+			isInDirection = nodeCenterY > sourceCenterY;
+			if (isInDirection) {
+				distance = Math.sqrt(
+					Math.pow(nodeCenterX - sourceCenterX, 2) +
 							Math.pow(nodeCenterY - sourceCenterY, 2)
-					);
-				}
-				break;
-			case "left":
-				isInDirection = nodeCenterX < sourceCenterX;
-				if (isInDirection) {
-					distance = Math.sqrt(
-						Math.pow(nodeCenterX - sourceCenterX, 2) +
+				);
+			}
+			break;
+		case "left":
+			isInDirection = nodeCenterX < sourceCenterX;
+			if (isInDirection) {
+				distance = Math.sqrt(
+					Math.pow(nodeCenterX - sourceCenterX, 2) +
 							Math.pow(nodeCenterY - sourceCenterY, 2)
-					);
-				}
-				break;
-			case "up":
-				isInDirection = nodeCenterY < sourceCenterY;
-				if (isInDirection) {
-					distance = Math.sqrt(
-						Math.pow(nodeCenterX - sourceCenterX, 2) +
+				);
+			}
+			break;
+		case "up":
+			isInDirection = nodeCenterY < sourceCenterY;
+			if (isInDirection) {
+				distance = Math.sqrt(
+					Math.pow(nodeCenterX - sourceCenterX, 2) +
 							Math.pow(nodeCenterY - sourceCenterY, 2)
-					);
-				}
-				break;
+				);
+			}
+			break;
 		}
 
 		if (isInDirection && distance < minDistance) {
@@ -252,38 +252,38 @@ function calculateRegionDensity(
 	// Define region bounds based on direction
 	let regionBounds: Rect;
 	switch (direction) {
-		case "right":
-			regionBounds = {
-				x: sourceNode.x + sourceNode.width,
-				y: sourceCenterY - regionSize / 2,
-				width: regionSize,
-				height: regionSize,
-			};
-			break;
-		case "down":
-			regionBounds = {
-				x: sourceCenterX - regionSize / 2,
-				y: sourceNode.y + sourceNode.height,
-				width: regionSize,
-				height: regionSize,
-			};
-			break;
-		case "left":
-			regionBounds = {
-				x: sourceNode.x - regionSize,
-				y: sourceCenterY - regionSize / 2,
-				width: regionSize,
-				height: regionSize,
-			};
-			break;
-		case "up":
-			regionBounds = {
-				x: sourceCenterX - regionSize / 2,
-				y: sourceNode.y - regionSize,
-				width: regionSize,
-				height: regionSize,
-			};
-			break;
+	case "right":
+		regionBounds = {
+			x: sourceNode.x + sourceNode.width,
+			y: sourceCenterY - regionSize / 2,
+			width: regionSize,
+			height: regionSize,
+		};
+		break;
+	case "down":
+		regionBounds = {
+			x: sourceCenterX - regionSize / 2,
+			y: sourceNode.y + sourceNode.height,
+			width: regionSize,
+			height: regionSize,
+		};
+		break;
+	case "left":
+		regionBounds = {
+			x: sourceNode.x - regionSize,
+			y: sourceCenterY - regionSize / 2,
+			width: regionSize,
+			height: regionSize,
+		};
+		break;
+	case "up":
+		regionBounds = {
+			x: sourceCenterX - regionSize / 2,
+			y: sourceNode.y - regionSize,
+			width: regionSize,
+			height: regionSize,
+		};
+		break;
 	}
 
 	// Count nodes in region
@@ -315,13 +315,13 @@ function calculateRegionDensity(
  * Returns penalty score (0-100)
  */
 function checkBoundaryProximity(
-	canvas: Canvas,
-	sourceNode: CanvasNode,
-	direction: Direction
+	_canvas: Canvas,
+	_sourceNode: CanvasNode,
+	_direction: Direction
 ): number {
-	// For now, return 0 (no penalty)
-	// In a real implementation, you would check canvas viewport bounds
-	// This requires access to canvas viewport coordinates which may not be easily available
+	// 目前返回 0（无惩罚）
+	// 在实际实现中，需要检查画布视口边界
+	// 这需要访问画布视口坐标，可能不容易获取
 	return 0;
 }
 
@@ -411,26 +411,26 @@ export function calculatePositionInDirection(
 	const gap = spacing;
 
 	switch (direction) {
-		case "right":
-			return {
-				x: sourceNode.x + sourceNode.width + gap,
-				y: sourceNode.y,
-			};
-		case "down":
-			return {
-				x: sourceNode.x,
-				y: sourceNode.y + sourceNode.height + gap,
-			};
-		case "left":
-			return {
-				x: sourceNode.x - nodeSize.width - gap,
-				y: sourceNode.y,
-			};
-		case "up":
-			return {
-				x: sourceNode.x,
-				y: sourceNode.y - nodeSize.height - gap,
-			};
+	case "right":
+		return {
+			x: sourceNode.x + sourceNode.width + gap,
+			y: sourceNode.y,
+		};
+	case "down":
+		return {
+			x: sourceNode.x,
+			y: sourceNode.y + sourceNode.height + gap,
+		};
+	case "left":
+		return {
+			x: sourceNode.x - nodeSize.width - gap,
+			y: sourceNode.y,
+		};
+	case "up":
+		return {
+			x: sourceNode.x,
+			y: sourceNode.y - nodeSize.height - gap,
+		};
 	}
 }
 

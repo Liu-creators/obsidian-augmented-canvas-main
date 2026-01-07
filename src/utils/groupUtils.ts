@@ -1,4 +1,3 @@
-import { App } from "obsidian";
 import { Canvas, CanvasNode } from "../obsidian/canvas-internal";
 import { readNodeContent } from "../obsidian/fileUtil";
 
@@ -13,7 +12,7 @@ export function isGroup(node: CanvasNode): boolean {
 /**
  * 判断一个节点是否在 group 的坐标区域内
  * 根据 Obsidian Canvas JSON 规范，group 内的节点通过坐标区域来判断包含关系
- * 
+ *
  * @param node - 要检查的节点
  * @param group - group 节点
  * @returns 如果节点在 group 内返回 true
@@ -47,7 +46,7 @@ export function isNodeInGroup(node: CanvasNode, group: CanvasNode): boolean {
 
 /**
  * 获取 group 内的所有节点
- * 
+ *
  * @param group - group 节点
  * @param canvas - Canvas 对象
  * @returns group 内的所有节点数组
@@ -61,7 +60,7 @@ export function getNodesInGroup(
 	}
 
 	const nodesInGroup: CanvasNode[] = [];
-	
+
 	// 获取 canvas 的所有节点数据
 	const canvasData = canvas.getData();
 	if (!canvasData || !canvasData.nodes) {
@@ -101,7 +100,7 @@ export function getNodesInGroup(
 
 /**
  * 读取 group 内所有节点的内容
- * 
+ *
  * @param group - group 节点
  * @returns 所有节点内容的组合文本，每个节点内容之间用两个换行符分隔
  */
@@ -125,7 +124,7 @@ export async function readGroupContent(group: CanvasNode): Promise<string> {
 		if (content?.trim()) {
 			// 添加节点类型标识（可选，帮助 AI 理解内容结构）
 			const nodeData = node.getData();
-			
+
 			// 如果是嵌套的 group，递归读取
 			if (nodeData.type === "group") {
 				const groupLabel = (nodeData as any).label || "Group";
@@ -146,7 +145,7 @@ export async function readGroupContent(group: CanvasNode): Promise<string> {
 
 /**
  * 获取 group 的标签（label）
- * 
+ *
  * @param group - group 节点
  * @returns group 的 label，如果没有则返回 "Group"
  */
@@ -161,7 +160,7 @@ export function getGroupLabel(group: CanvasNode): string {
 
 /**
  * 读取 group 内容并生成适合 AI 的上下文描述
- * 
+ *
  * @param group - group 节点
  * @returns 格式化的上下文字符串
  */

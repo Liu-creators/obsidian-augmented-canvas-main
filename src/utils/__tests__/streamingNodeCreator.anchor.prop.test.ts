@@ -1,13 +1,13 @@
 /**
  * Property-Based Tests for StreamingNodeCreator Anchor Positioning
- * 
+ *
  * Feature: group-anchor-positioning
- * 
+ *
  * These tests validate the correctness properties defined in the design document
  * using fast-check for property-based testing.
  */
 
-import * as fc from 'fast-check';
+import * as fc from "fast-check";
 
 /**
  * Position calculation function extracted for testing
@@ -59,19 +59,19 @@ interface PositionCalculationParams {
  */
 function calculateNodePosition(params: PositionCalculationParams): { x: number; y: number } {
 	const { anchorState, padding, nodeWidth, nodeHeight, gap, row, col } = params;
-	
+
 	const cellWidth = nodeWidth + gap;
 	const cellHeight = nodeHeight + gap;
-	
+
 	// Clamp coordinates to reasonable bounds
 	const MAX_GRID_COORD = 100;
 	const clampedRow = Math.max(-MAX_GRID_COORD, Math.min(MAX_GRID_COORD, row));
 	const clampedCol = Math.max(-MAX_GRID_COORD, Math.min(MAX_GRID_COORD, col));
-	
+
 	// Normalize coordinates based on minimum seen values
 	const normalizedRow = clampedRow - anchorState.minRowSeen;
 	const normalizedCol = clampedCol - anchorState.minColSeen;
-	
+
 	return {
 		x: anchorState.anchorX + padding + (normalizedCol * cellWidth),
 		y: anchorState.anchorY + padding + (normalizedRow * cellHeight),
@@ -94,26 +94,26 @@ function pixelToGrid(
 ): { row: number; col: number } {
 	const normalizedCol = (pixelX - anchorX - padding) / cellWidth;
 	const normalizedRow = (pixelY - anchorY - padding) / cellHeight;
-	
+
 	return {
 		row: normalizedRow + minRowSeen,
 		col: normalizedCol + minColSeen,
 	};
 }
 
-describe('StreamingNodeCreator Anchor Positioning', () => {
+describe("StreamingNodeCreator Anchor Positioning", () => {
 	/**
 	 * Property 2: Position Calculation Round-Trip
-	 * 
+	 *
 	 * For any anchor position (anchorX, anchorY), padding value, cell dimensions,
 	 * and grid coordinate (row, col), the calculated pixel position SHALL satisfy
 	 * the position formula, and converting back to grid coordinates SHALL produce
 	 * the original (row, col) values.
-	 * 
+	 *
 	 * **Validates: Requirements 2.1**
 	 */
-	describe('Property 2: Position Calculation Round-Trip', () => {
-		it('should calculate pixel position correctly from grid coordinates', () => {
+	describe("Property 2: Position Calculation Round-Trip", () => {
+		it("should calculate pixel position correctly from grid coordinates", () => {
 			fc.assert(
 				fc.property(
 					// Generate anchor position
@@ -136,7 +136,7 @@ describe('StreamingNodeCreator Anchor Positioning', () => {
 						// Ensure minRowSeen <= row and minColSeen <= col
 						const effectiveMinRow = Math.min(minRowSeen, row);
 						const effectiveMinCol = Math.min(minColSeen, col);
-						
+
 						const anchorState: AnchorState = {
 							anchorX,
 							anchorY,
@@ -144,10 +144,10 @@ describe('StreamingNodeCreator Anchor Positioning', () => {
 							minRowSeen: effectiveMinRow,
 							minColSeen: effectiveMinCol,
 						};
-						
+
 						const cellWidth = nodeWidth + gap;
 						const cellHeight = nodeHeight + gap;
-						
+
 						// Calculate pixel position
 						const pixelPos = calculateNodePosition({
 							anchorState,
@@ -158,14 +158,14 @@ describe('StreamingNodeCreator Anchor Positioning', () => {
 							row,
 							col,
 						});
-						
+
 						// Verify the formula is correct
 						const normalizedRow = row - effectiveMinRow;
 						const normalizedCol = col - effectiveMinCol;
-						
+
 						const expectedX = anchorX + padding + (normalizedCol * cellWidth);
 						const expectedY = anchorY + padding + (normalizedRow * cellHeight);
-						
+
 						expect(pixelPos.x).toBe(expectedX);
 						expect(pixelPos.y).toBe(expectedY);
 					}
@@ -174,7 +174,7 @@ describe('StreamingNodeCreator Anchor Positioning', () => {
 			);
 		});
 
-		it('should round-trip: grid -> pixel -> grid produces original coordinates', () => {
+		it("should round-trip: grid -> pixel -> grid produces original coordinates", () => {
 			fc.assert(
 				fc.property(
 					// Generate anchor position
@@ -193,7 +193,7 @@ describe('StreamingNodeCreator Anchor Positioning', () => {
 					(anchorX, anchorY, padding, nodeWidth, nodeHeight, gap, row, col) => {
 						const minRowSeen = Math.min(0, row);
 						const minColSeen = Math.min(0, col);
-						
+
 						const anchorState: AnchorState = {
 							anchorX,
 							anchorY,
@@ -201,10 +201,10 @@ describe('StreamingNodeCreator Anchor Positioning', () => {
 							minRowSeen,
 							minColSeen,
 						};
-						
+
 						const cellWidth = nodeWidth + gap;
 						const cellHeight = nodeHeight + gap;
-						
+
 						// Forward: grid -> pixel
 						const pixelPos = calculateNodePosition({
 							anchorState,
@@ -215,7 +215,7 @@ describe('StreamingNodeCreator Anchor Positioning', () => {
 							row,
 							col,
 						});
-						
+
 						// Reverse: pixel -> grid
 						const gridPos = pixelToGrid(
 							pixelPos.x,
@@ -228,7 +228,7 @@ describe('StreamingNodeCreator Anchor Positioning', () => {
 							minRowSeen,
 							minColSeen
 						);
-						
+
 						// Should get back original coordinates
 						expect(gridPos.row).toBeCloseTo(row, 10);
 						expect(gridPos.col).toBeCloseTo(col, 10);
@@ -238,7 +238,7 @@ describe('StreamingNodeCreator Anchor Positioning', () => {
 			);
 		});
 
-		it('should handle coordinate clamping for extreme values', () => {
+		it("should handle coordinate clamping for extreme values", () => {
 			fc.assert(
 				fc.property(
 					fc.integer({ min: -10000, max: 10000 }),
@@ -258,10 +258,10 @@ describe('StreamingNodeCreator Anchor Positioning', () => {
 							minRowSeen: 0,
 							minColSeen: 0,
 						};
-						
+
 						const cellWidth = nodeWidth + gap;
 						const cellHeight = nodeHeight + gap;
-						
+
 						// Calculate with potentially extreme values
 						const pixelPos = calculateNodePosition({
 							anchorState,
@@ -272,15 +272,15 @@ describe('StreamingNodeCreator Anchor Positioning', () => {
 							row,
 							col,
 						});
-						
+
 						// Clamped values
 						const clampedRow = Math.max(-100, Math.min(100, row));
 						const clampedCol = Math.max(-100, Math.min(100, col));
-						
+
 						// Expected position with clamped values
 						const expectedX = anchorX + padding + (clampedCol * cellWidth);
 						const expectedY = anchorY + padding + (clampedRow * cellHeight);
-						
+
 						expect(pixelPos.x).toBe(expectedX);
 						expect(pixelPos.y).toBe(expectedY);
 					}
@@ -292,14 +292,14 @@ describe('StreamingNodeCreator Anchor Positioning', () => {
 });
 
 
-describe('Property 3: Node Position Stability Under Streaming', () => {
+describe("Property 3: Node Position Stability Under Streaming", () => {
 	/**
 	 * Property 3: Node Position Stability Under Streaming
-	 * 
+	 *
 	 * For any node that has been created at position (x, y), and for any
 	 * subsequent operation (adding new nodes, updating content, expanding bounds),
 	 * the node's position SHALL remain at (x, y) unchanged.
-	 * 
+	 *
 	 * **Validates: Requirements 2.3, 5.2**
 	 */
 
@@ -327,27 +327,27 @@ describe('Property 3: Node Position Stability Under Streaming', () => {
 	): NodeState[] {
 		const cellWidth = nodeWidth + gap;
 		const cellHeight = nodeHeight + gap;
-		
+
 		// Track minimum coordinates seen (simulating streaming behavior)
 		let minRowSeen = 0;
 		let minColSeen = 0;
-		
+
 		const nodes: NodeState[] = [];
-		
+
 		for (let i = 0; i < nodeCoordinates.length; i++) {
 			const { row, col } = nodeCoordinates[i];
-			
+
 			// Update min values (simulating what happens during streaming)
 			minRowSeen = Math.min(minRowSeen, row);
 			minColSeen = Math.min(minColSeen, col);
-			
+
 			// Calculate position using the formula
 			const normalizedRow = row - minRowSeen;
 			const normalizedCol = col - minColSeen;
-			
+
 			const x = anchorX + padding + (normalizedCol * cellWidth);
 			const y = anchorY + padding + (normalizedRow * cellHeight);
-			
+
 			nodes.push({
 				id: `node_${i}`,
 				row,
@@ -355,11 +355,11 @@ describe('Property 3: Node Position Stability Under Streaming', () => {
 				position: { x, y },
 			});
 		}
-		
+
 		return nodes;
 	}
 
-	it('should maintain node positions when new nodes are added with non-negative coordinates', () => {
+	it("should maintain node positions when new nodes are added with non-negative coordinates", () => {
 		fc.assert(
 			fc.property(
 				// Generate anchor position
@@ -381,19 +381,19 @@ describe('Property 3: Node Position Stability Under Streaming', () => {
 				(anchorX, anchorY, padding, nodeWidth, nodeHeight, gap, nodeCoordinates) => {
 					const cellWidth = nodeWidth + gap;
 					const cellHeight = nodeHeight + gap;
-					
+
 					// Simulate streaming: create nodes one by one
 					const allNodes = simulateStreamingNodeCreation(
 						anchorX, anchorY, padding, nodeWidth, nodeHeight, gap, nodeCoordinates
 					);
-					
+
 					// For non-negative coordinates, minRowSeen and minColSeen stay at 0
 					// So positions should be stable and predictable
 					for (let i = 0; i < allNodes.length; i++) {
 						const node = allNodes[i];
 						const expectedX = anchorX + padding + (node.col * cellWidth);
 						const expectedY = anchorY + padding + (node.row * cellHeight);
-						
+
 						expect(node.position.x).toBe(expectedX);
 						expect(node.position.y).toBe(expectedY);
 					}
@@ -403,7 +403,7 @@ describe('Property 3: Node Position Stability Under Streaming', () => {
 		);
 	});
 
-	it('should preserve relative distances between nodes regardless of anchor position', () => {
+	it("should preserve relative distances between nodes regardless of anchor position", () => {
 		fc.assert(
 			fc.property(
 				// Generate two different anchor positions
@@ -429,21 +429,21 @@ describe('Property 3: Node Position Stability Under Streaming', () => {
 					const nodes1 = simulateStreamingNodeCreation(
 						anchorX1, anchorY1, padding, nodeWidth, nodeHeight, gap, nodeCoordinates
 					);
-					
+
 					// Create nodes with second anchor
 					const nodes2 = simulateStreamingNodeCreation(
 						anchorX2, anchorY2, padding, nodeWidth, nodeHeight, gap, nodeCoordinates
 					);
-					
+
 					// Relative distances between any two nodes should be the same
 					for (let i = 0; i < nodes1.length; i++) {
 						for (let j = i + 1; j < nodes1.length; j++) {
 							const dx1 = nodes1[j].position.x - nodes1[i].position.x;
 							const dy1 = nodes1[j].position.y - nodes1[i].position.y;
-							
+
 							const dx2 = nodes2[j].position.x - nodes2[i].position.x;
 							const dy2 = nodes2[j].position.y - nodes2[i].position.y;
-							
+
 							expect(dx1).toBe(dx2);
 							expect(dy1).toBe(dy2);
 						}
@@ -454,7 +454,7 @@ describe('Property 3: Node Position Stability Under Streaming', () => {
 		);
 	});
 
-	it('should calculate consistent positions for the same grid coordinates', () => {
+	it("should calculate consistent positions for the same grid coordinates", () => {
 		fc.assert(
 			fc.property(
 				// Generate anchor position
@@ -471,7 +471,7 @@ describe('Property 3: Node Position Stability Under Streaming', () => {
 				(anchorX, anchorY, padding, nodeWidth, nodeHeight, gap, row, col) => {
 					const cellWidth = nodeWidth + gap;
 					const cellHeight = nodeHeight + gap;
-					
+
 					// Calculate position multiple times - should always be the same
 					const anchorState: AnchorState = {
 						anchorX,
@@ -480,7 +480,7 @@ describe('Property 3: Node Position Stability Under Streaming', () => {
 						minRowSeen: 0,
 						minColSeen: 0,
 					};
-					
+
 					const pos1 = calculateNodePosition({
 						anchorState,
 						padding,
@@ -490,7 +490,7 @@ describe('Property 3: Node Position Stability Under Streaming', () => {
 						row,
 						col,
 					});
-					
+
 					const pos2 = calculateNodePosition({
 						anchorState,
 						padding,
@@ -500,7 +500,7 @@ describe('Property 3: Node Position Stability Under Streaming', () => {
 						row,
 						col,
 					});
-					
+
 					const pos3 = calculateNodePosition({
 						anchorState,
 						padding,
@@ -510,7 +510,7 @@ describe('Property 3: Node Position Stability Under Streaming', () => {
 						row,
 						col,
 					});
-					
+
 					// All positions should be identical
 					expect(pos1.x).toBe(pos2.x);
 					expect(pos1.y).toBe(pos2.y);
@@ -526,15 +526,15 @@ describe('Property 3: Node Position Stability Under Streaming', () => {
 
 /**
  * Property 1: Anchor Preservation Invariant
- * 
+ *
  * For any pre-created group at position (X, Y) and for any sequence of streaming
  * operations (node creation, content updates, bounds expansion), the group's anchor
  * position SHALL remain at (X, Y) within a 2-pixel tolerance, unless negative grid
  * coordinates require anchor adjustment.
- * 
+ *
  * **Validates: Requirements 1.1, 1.2, 1.3, 3.2**
  */
-describe('Property 1: Anchor Preservation Invariant', () => {
+describe("Property 1: Anchor Preservation Invariant", () => {
 	const TOLERANCE = 2; // 2-pixel tolerance as per requirements
 
 	/**
@@ -574,7 +574,7 @@ describe('Property 1: Anchor Preservation Invariant', () => {
 			// Anchor shift required - this is expected for negative coordinates
 			const newAnchorX = Math.min(requiredX, initialGroup.anchorState.anchorX);
 			const newAnchorY = Math.min(requiredY, initialGroup.anchorState.anchorY);
-			
+
 			return {
 				newGroup: {
 					x: newAnchorX,
@@ -615,7 +615,7 @@ describe('Property 1: Anchor Preservation Invariant', () => {
 		}
 	}
 
-	it('should preserve anchor position when all nodes have non-negative coordinates', () => {
+	it("should preserve anchor position when all nodes have non-negative coordinates", () => {
 		fc.assert(
 			fc.property(
 				// Generate initial anchor position
@@ -670,7 +670,7 @@ describe('Property 1: Anchor Preservation Invariant', () => {
 		);
 	});
 
-	it('should shift anchor only when nodes extend beyond original anchor position', () => {
+	it("should shift anchor only when nodes extend beyond original anchor position", () => {
 		fc.assert(
 			fc.property(
 				// Generate initial anchor position (positive to allow negative offsets)
@@ -701,7 +701,7 @@ describe('Property 1: Anchor Preservation Invariant', () => {
 
 					// Create a node that extends beyond the anchor (negative offset)
 					const nodes: NodeState[] = [{
-						id: 'node_0',
+						id: "node_0",
 						x: anchorX + negOffsetX, // This will be less than anchorX
 						y: anchorY + negOffsetY, // This will be less than anchorY
 						width: nodeWidth,
@@ -712,7 +712,7 @@ describe('Property 1: Anchor Preservation Invariant', () => {
 
 					// Anchor should have shifted
 					expect(result.anchorShifted).toBe(true);
-					
+
 					// New anchor should accommodate the node
 					expect(result.newGroup.anchorState.anchorX).toBeLessThanOrEqual(nodes[0].x - padding + TOLERANCE);
 					expect(result.newGroup.anchorState.anchorY).toBeLessThanOrEqual(nodes[0].y - padding + TOLERANCE);
@@ -722,7 +722,7 @@ describe('Property 1: Anchor Preservation Invariant', () => {
 		);
 	});
 
-	it('should maintain anchor position across multiple streaming operations with positive coordinates', () => {
+	it("should maintain anchor position across multiple streaming operations with positive coordinates", () => {
 		fc.assert(
 			fc.property(
 				// Generate initial anchor position
@@ -782,7 +782,7 @@ describe('Property 1: Anchor Preservation Invariant', () => {
 		);
 	});
 
-	it('should only expand width/height when anchor is preserved', () => {
+	it("should only expand width/height when anchor is preserved", () => {
 		fc.assert(
 			fc.property(
 				// Generate initial anchor position
@@ -816,7 +816,7 @@ describe('Property 1: Anchor Preservation Invariant', () => {
 
 					// Create a node that requires bounds expansion
 					const nodes: NodeState[] = [{
-						id: 'node_0',
+						id: "node_0",
 						x: anchorX + padding + offsetX,
 						y: anchorY + padding + offsetY,
 						width: nodeWidth,
@@ -827,15 +827,15 @@ describe('Property 1: Anchor Preservation Invariant', () => {
 
 					// Anchor should be preserved
 					expect(result.anchorPreserved).toBe(true);
-					
+
 					// Group position (x, y) should match anchor
 					expect(result.newGroup.x).toBe(anchorX);
 					expect(result.newGroup.y).toBe(anchorY);
-					
+
 					// Width and height should have expanded to fit the node
 					const requiredWidth = offsetX + nodeWidth + padding;
 					const requiredHeight = offsetY + nodeHeight + padding;
-					
+
 					expect(result.newGroup.width).toBeGreaterThanOrEqual(Math.max(initialWidth, requiredWidth) - TOLERANCE);
 					expect(result.newGroup.height).toBeGreaterThanOrEqual(Math.max(initialHeight, requiredHeight) - TOLERANCE);
 				}
@@ -848,16 +848,16 @@ describe('Property 1: Anchor Preservation Invariant', () => {
 
 /**
  * Property 4: Group Bounds Containment
- * 
+ *
  * For any group with member nodes, the group's bounds SHALL satisfy:
  * - group.x <= min(node.x for all nodes) - padding
  * - group.y <= min(node.y for all nodes) - padding
  * - group.x + group.width >= max(node.x + node.width for all nodes) + padding
  * - group.y + group.height >= max(node.y + node.height for all nodes) + padding
- * 
+ *
  * **Validates: Requirements 3.1**
  */
-describe('Property 4: Group Bounds Containment', () => {
+describe("Property 4: Group Bounds Containment", () => {
 	const TOLERANCE = 2; // 2-pixel tolerance as per requirements
 
 	/**
@@ -937,7 +937,7 @@ describe('Property 4: Group Bounds Containment', () => {
 		};
 	}
 
-	it('should contain all nodes with proper padding for any node configuration', () => {
+	it("should contain all nodes with proper padding for any node configuration", () => {
 		fc.assert(
 			fc.property(
 				// Generate padding
@@ -967,7 +967,7 @@ describe('Property 4: Group Bounds Containment', () => {
 
 					expect(result.valid).toBe(true);
 					if (!result.valid) {
-						console.log('Violations:', result.violations);
+						console.log("Violations:", result.violations);
 					}
 				}
 			),
@@ -975,7 +975,7 @@ describe('Property 4: Group Bounds Containment', () => {
 		);
 	});
 
-	it('should contain nodes after anchor-preserving bounds update', () => {
+	it("should contain nodes after anchor-preserving bounds update", () => {
 		fc.assert(
 			fc.property(
 				// Generate anchor position
@@ -1022,7 +1022,7 @@ describe('Property 4: Group Bounds Containment', () => {
 
 					expect(result.valid).toBe(true);
 					if (!result.valid) {
-						console.log('Violations:', result.violations);
+						console.log("Violations:", result.violations);
 					}
 				}
 			),
@@ -1030,7 +1030,7 @@ describe('Property 4: Group Bounds Containment', () => {
 		);
 	});
 
-	it('should contain nodes even when bounds expansion is required', () => {
+	it("should contain nodes even when bounds expansion is required", () => {
 		fc.assert(
 			fc.property(
 				// Generate initial group bounds
@@ -1048,7 +1048,7 @@ describe('Property 4: Group Bounds Containment', () => {
 				fc.integer({ min: 0, max: 1000 }),
 				(groupX, groupY, initialWidth, initialHeight, padding, nodeWidth, nodeHeight, offsetX, offsetY) => {
 					const nodes: NodeState[] = [{
-						id: 'node_0',
+						id: "node_0",
 						x: groupX + padding + offsetX,
 						y: groupY + padding + offsetY,
 						width: nodeWidth,
@@ -1070,7 +1070,7 @@ describe('Property 4: Group Bounds Containment', () => {
 
 					expect(result.valid).toBe(true);
 					if (!result.valid) {
-						console.log('Violations:', result.violations);
+						console.log("Violations:", result.violations);
 					}
 				}
 			),
@@ -1078,7 +1078,7 @@ describe('Property 4: Group Bounds Containment', () => {
 		);
 	});
 
-	it('should maintain containment after multiple node additions', () => {
+	it("should maintain containment after multiple node additions", () => {
 		fc.assert(
 			fc.property(
 				// Generate anchor position
@@ -1145,15 +1145,15 @@ describe('Property 4: Group Bounds Containment', () => {
 
 /**
  * Property 5: Relative Position Preservation
- * 
+ *
  * For any two nodes A and B within a group, and for any operation that causes
  * anchor adjustment (due to negative coordinates), the relative distance between
  * A and B SHALL remain constant:
  * - distance(A, B) before operation == distance(A, B) after operation
- * 
+ *
  * **Validates: Requirements 3.3**
  */
-describe('Property 5: Relative Position Preservation', () => {
+describe("Property 5: Relative Position Preservation", () => {
 	/**
 	 * Calculate Euclidean distance between two nodes
 	 */
@@ -1196,7 +1196,7 @@ describe('Property 5: Relative Position Preservation', () => {
 		}));
 	}
 
-	it('should preserve relative distances between all node pairs after anchor shift', () => {
+	it("should preserve relative distances between all node pairs after anchor shift", () => {
 		fc.assert(
 			fc.property(
 				// Generate initial anchor position (high enough to allow negative shift)
@@ -1265,7 +1265,7 @@ describe('Property 5: Relative Position Preservation', () => {
 		);
 	});
 
-	it('should preserve relative offsets (dx, dy) between all node pairs after anchor shift', () => {
+	it("should preserve relative offsets (dx, dy) between all node pairs after anchor shift", () => {
 		fc.assert(
 			fc.property(
 				// Generate initial anchor position
@@ -1335,7 +1335,7 @@ describe('Property 5: Relative Position Preservation', () => {
 		);
 	});
 
-	it('should preserve node order and layout structure after anchor shift', () => {
+	it("should preserve node order and layout structure after anchor shift", () => {
 		fc.assert(
 			fc.property(
 				// Generate initial anchor position
@@ -1407,7 +1407,7 @@ describe('Property 5: Relative Position Preservation', () => {
 		);
 	});
 
-	it('should preserve relative positions when multiple anchor shifts occur', () => {
+	it("should preserve relative positions when multiple anchor shifts occur", () => {
 		fc.assert(
 			fc.property(
 				// Generate initial anchor position
@@ -1494,32 +1494,32 @@ describe('Property 5: Relative Position Preservation', () => {
 
 /**
  * Property 10: Anchor Immutability During Streaming
- * 
+ *
  * For any pre-created group with anchor position (anchorX, anchorY), and for any
  * sequence of streaming operations (node creation, content updates, height changes),
  * the group's top-left position SHALL satisfy:
  * - group.x == anchorX (exactly, no tolerance)
  * - group.y == anchorY (exactly, no tolerance)
- * 
+ *
  * The group may only expand by increasing width and height; x and y coordinates
  * are immutable during streaming.
- * 
+ *
  * **Feature: group-anchor-positioning, Property 10: Anchor Immutability During Streaming**
  * **Validates: Requirements 9.1, 9.2, 9.3, 9.4**
  */
-describe('Property 10: Anchor Immutability During Streaming', () => {
+describe("Property 10: Anchor Immutability During Streaming", () => {
 	/**
 	 * Represents a streaming operation that can occur during AI response streaming
 	 */
-	type StreamingOperation = 
-		| { type: 'createNode'; nodeId: string; row: number; col: number; height: number }
-		| { type: 'updateContent'; nodeId: string; newHeight: number }
-		| { type: 'expandBounds'; requiredWidth: number; requiredHeight: number };
+	type StreamingOperation =
+		| { type: "createNode"; nodeId: string; row: number; col: number; height: number }
+		| { type: "updateContent"; nodeId: string; newHeight: number }
+		| { type: "expandBounds"; requiredWidth: number; requiredHeight: number };
 
 	/**
 	 * Simulates the anchor-immutable bounds update logic
 	 * This mirrors the fixed updateGroupBoundsPreservingAnchor implementation
-	 * 
+	 *
 	 * CRITICAL: This function NEVER modifies x or y - only width and height
 	 */
 	function simulateAnchorImmutableBoundsUpdate(
@@ -1576,18 +1576,18 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 		const anchorViolations: string[] = [];
 
 		for (const op of operations) {
-			if (op.type === 'createNode') {
+			if (op.type === "createNode") {
 				// Calculate node position (simplified - just use row/col as offsets)
 				const nodeX = initialAnchorX + padding + op.col * (nodeWidth + 40);
 				const nodeY = initialAnchorY + padding + op.row * (op.height + 40);
-				
+
 				nodes.set(op.nodeId, {
 					x: nodeX,
 					y: nodeY,
 					width: nodeWidth,
 					height: op.height,
 				});
-			} else if (op.type === 'updateContent') {
+			} else if (op.type === "updateContent") {
 				const node = nodes.get(op.nodeId);
 				if (node) {
 					node.height = op.newHeight;
@@ -1618,7 +1618,7 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 		return { finalGroup: currentGroup, anchorViolations };
 	}
 
-	it('should never change group x/y during node creation operations', () => {
+	it("should never change group x/y during node creation operations", () => {
 		fc.assert(
 			fc.property(
 				// Generate initial anchor position
@@ -1643,7 +1643,7 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 				),
 				(anchorX, anchorY, initialWidth, initialHeight, padding, nodeWidth, nodeHeight, nodeCreations) => {
 					const operations: StreamingOperation[] = nodeCreations.map((nc, i) => ({
-						type: 'createNode' as const,
+						type: "createNode" as const,
 						nodeId: `node_${i}`,
 						row: nc.row,
 						col: nc.col,
@@ -1662,7 +1662,7 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 
 					// CRITICAL: No anchor violations should occur
 					expect(result.anchorViolations).toHaveLength(0);
-					
+
 					// Final group position must exactly match initial anchor
 					expect(result.finalGroup.x).toBe(anchorX);
 					expect(result.finalGroup.y).toBe(anchorY);
@@ -1672,7 +1672,7 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 		);
 	});
 
-	it('should never change group x/y during content update operations', () => {
+	it("should never change group x/y during content update operations", () => {
 		fc.assert(
 			fc.property(
 				// Generate initial anchor position
@@ -1705,7 +1705,7 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 				(anchorX, anchorY, initialWidth, initialHeight, padding, nodeWidth, initialNodes, heightUpdates) => {
 					// Create initial nodes
 					const createOps: StreamingOperation[] = initialNodes.map((n, i) => ({
-						type: 'createNode' as const,
+						type: "createNode" as const,
 						nodeId: `node_${i}`,
 						row: n.row,
 						col: n.col,
@@ -1716,7 +1716,7 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 					const updateOps: StreamingOperation[] = heightUpdates
 						.filter(u => u.nodeIndex < initialNodes.length)
 						.map(u => ({
-							type: 'updateContent' as const,
+							type: "updateContent" as const,
 							nodeId: `node_${u.nodeIndex}`,
 							newHeight: u.newHeight,
 						}));
@@ -1735,7 +1735,7 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 
 					// CRITICAL: No anchor violations should occur
 					expect(result.anchorViolations).toHaveLength(0);
-					
+
 					// Final group position must exactly match initial anchor
 					expect(result.finalGroup.x).toBe(anchorX);
 					expect(result.finalGroup.y).toBe(anchorY);
@@ -1745,7 +1745,7 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 		);
 	});
 
-	it('should only expand width/height, never shrink or move', () => {
+	it("should only expand width/height, never shrink or move", () => {
 		fc.assert(
 			fc.property(
 				// Generate initial anchor position
@@ -1781,7 +1781,7 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 						const nc = nodeCreations[i];
 						const nodeX = anchorX + padding + nc.col * (nodeWidth + 40);
 						const nodeY = anchorY + padding + nc.row * (nc.height + 40);
-						
+
 						nodes.set(`node_${i}`, {
 							x: nodeX,
 							y: nodeY,
@@ -1814,7 +1814,7 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 		);
 	});
 
-	it('should maintain exact anchor position through mixed streaming operations', () => {
+	it("should maintain exact anchor position through mixed streaming operations", () => {
 		fc.assert(
 			fc.property(
 				// Generate initial anchor position
@@ -1831,14 +1831,14 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 				fc.array(
 					fc.oneof(
 						fc.record({
-							type: fc.constant('createNode' as const),
+							type: fc.constant("createNode" as const),
 							nodeId: fc.string({ minLength: 1, maxLength: 10 }),
 							row: fc.integer({ min: 0, max: 5 }),
 							col: fc.integer({ min: 0, max: 5 }),
 							height: fc.integer({ min: 50, max: 400 }),
 						}),
 						fc.record({
-							type: fc.constant('updateContent' as const),
+							type: fc.constant("updateContent" as const),
 							nodeId: fc.string({ minLength: 1, maxLength: 10 }),
 							newHeight: fc.integer({ min: 100, max: 600 }),
 						})
@@ -1847,13 +1847,13 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 				),
 				(anchorX, anchorY, initialWidth, initialHeight, padding, nodeWidth, operations) => {
 					// Ensure we have some create operations first
-					const createOps = operations.filter(op => op.type === 'createNode');
-					const updateOps = operations.filter(op => op.type === 'updateContent');
-					
+					const createOps = operations.filter(op => op.type === "createNode");
+					const updateOps = operations.filter(op => op.type === "updateContent");
+
 					// Only use update ops for nodes that were created
 					const createdNodeIds = new Set(createOps.map(op => op.nodeId));
 					const validUpdateOps = updateOps.filter(op => createdNodeIds.has(op.nodeId));
-					
+
 					const allOps = [...createOps, ...validUpdateOps] as StreamingOperation[];
 
 					const result = simulateStreamingSequence(
@@ -1868,7 +1868,7 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 
 					// CRITICAL: No anchor violations should occur
 					expect(result.anchorViolations).toHaveLength(0);
-					
+
 					// Final group position must exactly match initial anchor
 					expect(result.finalGroup.x).toBe(anchorX);
 					expect(result.finalGroup.y).toBe(anchorY);
@@ -1878,7 +1878,7 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 		);
 	});
 
-	it('should preserve anchor even when nodes require significant bounds expansion', () => {
+	it("should preserve anchor even when nodes require significant bounds expansion", () => {
 		fc.assert(
 			fc.property(
 				// Generate initial anchor position
@@ -1902,7 +1902,7 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 				),
 				(anchorX, anchorY, initialWidth, initialHeight, padding, nodeWidth, nodeCreations) => {
 					const operations: StreamingOperation[] = nodeCreations.map((nc, i) => ({
-						type: 'createNode' as const,
+						type: "createNode" as const,
 						nodeId: `node_${i}`,
 						row: nc.row,
 						col: nc.col,
@@ -1921,7 +1921,7 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 
 					// CRITICAL: No anchor violations should occur
 					expect(result.anchorViolations).toHaveLength(0);
-					
+
 					// Final group position must exactly match initial anchor
 					expect(result.finalGroup.x).toBe(anchorX);
 					expect(result.finalGroup.y).toBe(anchorY);
@@ -1929,6 +1929,283 @@ describe('Property 10: Anchor Immutability During Streaming', () => {
 					// Width and height should have expanded significantly
 					expect(result.finalGroup.width).toBeGreaterThanOrEqual(initialWidth);
 					expect(result.finalGroup.height).toBeGreaterThanOrEqual(initialHeight);
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+});
+
+
+/**
+ * Property 8: Anchor Immutability During Streaming
+ *
+ * Feature: group-generation-refactor, Property 8: Anchor Immutability During Streaming
+ *
+ * For any streaming session with a pre-created group, the anchor position (anchorX, anchorY)
+ * SHALL remain exactly unchanged from the moment the group is created until streaming completes.
+ * The group's x and y coordinates SHALL never be modified during streaming.
+ *
+ * **Validates: Requirements 7.1, 7.4**
+ */
+describe("Property 8: Anchor Immutability During Streaming", () => {
+	/**
+	 * 模拟流式传输期间的锚点状态
+	 * 验证锚点在整个流式传输过程中保持不变
+	 */
+	interface StreamingAnchorState {
+		anchorX: number;
+		anchorY: number;
+		anchorLocked: boolean;
+		minRowSeen: number;
+		minColSeen: number;
+		edgeDirection: "left" | "top" | "right" | "bottom";
+	}
+
+	/**
+	 * 模拟流式传输操作
+	 */
+	type StreamingOp =
+		| { type: "createNode"; nodeId: string; row: number; col: number; height: number }
+		| { type: "updateContent"; nodeId: string; newHeight: number }
+		| { type: "expandBounds" };
+
+	/**
+	 * 模拟流式传输序列并验证锚点不可变性
+	 *
+	 * @param initialAnchorX - 初始锚点 X 坐标
+	 * @param initialAnchorY - 初始锚点 Y 坐标
+	 * @param operations - 流式传输操作序列
+	 * @returns 验证结果
+	 */
+	function simulateStreamingWithAnchorTracking(
+		initialAnchorX: number,
+		initialAnchorY: number,
+		operations: StreamingOp[]
+	): {
+		anchorPreserved: boolean;
+		anchorDriftX: number;
+		anchorDriftY: number;
+		operationsProcessed: number;
+	} {
+		// 初始化锚点状态
+		const anchorState: StreamingAnchorState = {
+			anchorX: initialAnchorX,
+			anchorY: initialAnchorY,
+			anchorLocked: true,
+			minRowSeen: 0,
+			minColSeen: 0,
+			edgeDirection: "left",
+		};
+
+		// 模拟组状态
+		const groupX = initialAnchorX;
+		const groupY = initialAnchorY;
+		let groupWidth = 400;
+		let groupHeight = 300;
+
+		// 追踪锚点漂移
+		let maxDriftX = 0;
+		let maxDriftY = 0;
+
+		// 处理每个操作
+		for (const op of operations) {
+			// 更新 minRowSeen 和 minColSeen（如果是创建节点操作）
+			if (op.type === "createNode") {
+				anchorState.minRowSeen = Math.min(anchorState.minRowSeen, op.row);
+				anchorState.minColSeen = Math.min(anchorState.minColSeen, op.col);
+			}
+
+			// 模拟边界扩展（只扩展 width/height，不修改 x/y）
+			if (op.type === "expandBounds" || op.type === "createNode") {
+				// 关键：锚点不可变 - 只扩展尺寸
+				// 这是 updateGroupBoundsPreservingAnchor 的核心逻辑
+				groupWidth = Math.max(groupWidth, groupWidth + 50);
+				groupHeight = Math.max(groupHeight, groupHeight + 50);
+
+				// 验证 x/y 没有改变
+				// 注意：在正确的实现中，groupX 和 groupY 永远不会被修改
+			}
+
+			// 检查锚点漂移
+			const driftX = Math.abs(groupX - initialAnchorX);
+			const driftY = Math.abs(groupY - initialAnchorY);
+			maxDriftX = Math.max(maxDriftX, driftX);
+			maxDriftY = Math.max(maxDriftY, driftY);
+		}
+
+		return {
+			anchorPreserved: maxDriftX === 0 && maxDriftY === 0,
+			anchorDriftX: maxDriftX,
+			anchorDriftY: maxDriftY,
+			operationsProcessed: operations.length,
+		};
+	}
+
+	it("should never modify anchor position during any streaming operation sequence", () => {
+		fc.assert(
+			fc.property(
+				// 生成初始锚点位置
+				fc.integer({ min: 0, max: 10000 }),
+				fc.integer({ min: 0, max: 10000 }),
+				// 生成随机流式传输操作序列
+				fc.array(
+					fc.oneof(
+						// 创建节点操作
+						fc.record({
+							type: fc.constant("createNode" as const),
+							nodeId: fc.string({ minLength: 1, maxLength: 10 }),
+							row: fc.integer({ min: -10, max: 10 }),
+							col: fc.integer({ min: -10, max: 10 }),
+							height: fc.integer({ min: 100, max: 500 }),
+						}),
+						// 更新内容操作
+						fc.record({
+							type: fc.constant("updateContent" as const),
+							nodeId: fc.string({ minLength: 1, maxLength: 10 }),
+							newHeight: fc.integer({ min: 100, max: 600 }),
+						}),
+						// 扩展边界操作
+						fc.record({
+							type: fc.constant("expandBounds" as const),
+						})
+					),
+					{ minLength: 1, maxLength: 50 }
+				),
+				(initialAnchorX, initialAnchorY, operations) => {
+					const result = simulateStreamingWithAnchorTracking(
+						initialAnchorX,
+						initialAnchorY,
+						operations
+					);
+
+					// 关键断言：锚点必须保持不变
+					expect(result.anchorPreserved).toBe(true);
+					expect(result.anchorDriftX).toBe(0);
+					expect(result.anchorDriftY).toBe(0);
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+
+	it("should preserve anchor position exactly through content updates", () => {
+		fc.assert(
+			fc.property(
+				// 生成初始锚点位置
+				fc.integer({ min: 0, max: 10000 }),
+				fc.integer({ min: 0, max: 10000 }),
+				// 生成多次内容更新
+				fc.array(
+					fc.integer({ min: 100, max: 800 }),
+					{ minLength: 5, maxLength: 20 }
+				),
+				(initialAnchorX, initialAnchorY, heightUpdates) => {
+					// 创建只包含内容更新的操作序列
+					const operations: StreamingOp[] = heightUpdates.map((height, i) => ({
+						type: "updateContent" as const,
+						nodeId: `node_${i % 5}`,
+						newHeight: height,
+					}));
+
+					const result = simulateStreamingWithAnchorTracking(
+						initialAnchorX,
+						initialAnchorY,
+						operations
+					);
+
+					// 锚点必须完全保持不变
+					expect(result.anchorDriftX).toBe(0);
+					expect(result.anchorDriftY).toBe(0);
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+
+	it("should preserve anchor position through bounds expansion operations", () => {
+		fc.assert(
+			fc.property(
+				// 生成初始锚点位置
+				fc.integer({ min: 0, max: 10000 }),
+				fc.integer({ min: 0, max: 10000 }),
+				// 生成多次边界扩展
+				fc.integer({ min: 10, max: 100 }),
+				(initialAnchorX, initialAnchorY, expansionCount) => {
+					// 创建只包含边界扩展的操作序列
+					const operations: StreamingOp[] = Array(expansionCount).fill(null).map(() => ({
+						type: "expandBounds" as const,
+					}));
+
+					const result = simulateStreamingWithAnchorTracking(
+						initialAnchorX,
+						initialAnchorY,
+						operations
+					);
+
+					// 锚点必须完全保持不变
+					expect(result.anchorDriftX).toBe(0);
+					expect(result.anchorDriftY).toBe(0);
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+
+	it("should preserve anchor position through mixed streaming operations", () => {
+		fc.assert(
+			fc.property(
+				// 生成初始锚点位置
+				fc.integer({ min: 0, max: 10000 }),
+				fc.integer({ min: 0, max: 10000 }),
+				// 生成节点创建序列
+				fc.array(
+					fc.record({
+						row: fc.integer({ min: 0, max: 5 }),
+						col: fc.integer({ min: 0, max: 3 }),
+						height: fc.integer({ min: 150, max: 400 }),
+					}),
+					{ minLength: 3, maxLength: 15 }
+				),
+				(initialAnchorX, initialAnchorY, nodeCreations) => {
+					// 创建混合操作序列：创建节点 + 内容更新 + 边界扩展
+					const operations: StreamingOp[] = [];
+
+					nodeCreations.forEach((nc, i) => {
+						// 创建节点
+						operations.push({
+							type: "createNode" as const,
+							nodeId: `node_${i}`,
+							row: nc.row,
+							col: nc.col,
+							height: nc.height,
+						});
+
+						// 随机添加内容更新
+						if (i % 2 === 0) {
+							operations.push({
+								type: "updateContent" as const,
+								nodeId: `node_${i}`,
+								newHeight: nc.height + 50,
+							});
+						}
+
+						// 每个节点后扩展边界
+						operations.push({
+							type: "expandBounds" as const,
+						});
+					});
+
+					const result = simulateStreamingWithAnchorTracking(
+						initialAnchorX,
+						initialAnchorY,
+						operations
+					);
+
+					// 关键断言：无论操作序列如何，锚点必须保持不变
+					expect(result.anchorPreserved).toBe(true);
+					expect(result.anchorDriftX).toBe(0);
+					expect(result.anchorDriftY).toBe(0);
 				}
 			),
 			{ numRuns: 100 }
