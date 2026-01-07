@@ -73,7 +73,7 @@ import { GroupGenerationConfig } from "./config";
  * 此方法不使用固定网格高度计算，而是累积实际高度以确保正确堆叠无重叠。
  *
  * 位置计算公式：
- * - 对于第 0 行: `y = anchorY + GROUP_HEADER_HEIGHT + PADDING_TOP + topSafeZone`
+ * - 对于第 0 行: `y = anchorY + GROUP_HEADER_HEIGHT + padding + topSafeZone`
  * - 对于第 N 行: `y = prevNode.y + prevNode.actualHeight + VERTICAL_GAP`
  *
  * 安全区域根据边缘方向应用，以防止与边缘标签重叠：
@@ -126,7 +126,6 @@ export function calculateNodePosition(
 		horizontalGap,
 		edgeLabelSafeZone,
 		groupHeaderHeight,
-		paddingTop,
 		nodeWidth: defaultNodeWidth,
 		groupPadding: padding,
 		maxGridCoord,
@@ -160,7 +159,7 @@ export function calculateNodePosition(
 
 	if (normalizedRow === 0 || !colTrack || colTrack.nodes.length === 0) {
 		// 列中的第一个节点：必须清除组头部 + 内边距 + 安全区域
-		y = anchorState.anchorY + groupHeaderHeight + paddingTop + topSafeZone;
+		y = anchorState.anchorY + groupHeaderHeight + padding + topSafeZone;
 	} else {
 		// 查找此列中的前一个节点（行号最高且小于 normalizedRow 的节点）
 		const sortedNodes = [...colTrack.nodes].sort((a, b) => a.row - b.row);
@@ -179,7 +178,7 @@ export function calculateNodePosition(
 			y = prevNodeInfo.y + prevNodeInfo.actualHeight + verticalGap;
 		} else {
 			// 未找到前一个节点，使用带头部清除的基础位置
-			y = anchorState.anchorY + groupHeaderHeight + paddingTop + topSafeZone;
+			y = anchorState.anchorY + groupHeaderHeight + padding + topSafeZone;
 		}
 	}
 
@@ -502,7 +501,7 @@ export function calculateGroupBounds(
 	anchorState: AnchorState,
 	config: GroupGenerationConfig
 ): { width: number; height: number } {
-	const { paddingBottom, groupPadding: padding } = config;
+	const { groupPadding: padding } = config;
 
 	// 如果没有成员，返回当前尺寸
 	if (memberPositions.length === 0) {
@@ -539,7 +538,7 @@ export function calculateGroupBounds(
 	// 高度计算使用 PADDING_BOTTOM 作为适当的底部边距
 	const newHeight = Math.max(
 		currentBounds.height,
-		maxY - anchorState.anchorY + paddingBottom
+		maxY - anchorState.anchorY + padding
 	);
 
 	return { width: newWidth, height: newHeight };

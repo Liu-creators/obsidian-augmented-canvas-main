@@ -5,7 +5,6 @@ import {
 	CanvasView,
 	calcHeight,
 	createNode,
-	addEdge,
 } from "../../obsidian/canvas-patches";
 import {
 	AugmentedCanvasSettings,
@@ -14,18 +13,12 @@ import { visitNodeAndAncestors } from "../../obsidian/canvasUtil";
 import { readNodeContent } from "../../obsidian/fileUtil";
 import { streamResponse } from "../../utils/chatgpt";
 import { CHAT_MODELS, chatModelByName } from "../../openai/models";
-import { isGroup, getNodesInGroup } from "../../utils/groupUtils";
-import { Canvas } from "../../obsidian/canvas-internal";
-import {
-	parseNodesFromMarkdown,
-	calculateSmartLayout,
-	NodeLayout,
-} from "../../utils/groupGenerator";
-import { randomHexString } from "../../utils";
+import { isGroup } from "../../utils/groupUtils";
 // 新架构模块导入
-import { GroupStreamManager, ChatMessage, ModelConfig } from "../../utils/groupGeneration/groupStreamManager";
-import { createConfigFromSettings } from "../../utils/groupGeneration/config";
-import { GenerationOptions, StreamingCallbacks } from "../../utils/groupGeneration/types";
+import { ChatMessage } from "../../utils/groupGeneration/groupStreamManager";
+// 导入新的 startRegeneration 函数
+// Requirements: 1.1 - 统一流式处理管道
+import { startRegeneration, RegenerationCallbacks } from "../canvas/regenerateResponse";
 
 /**
  * Color for assistant notes: 6 == purple
@@ -267,9 +260,48 @@ export function noteGenerator(
 					settings // Pass settings to enable smart positioning
 				);
 			} else {
-				// Check if target is a group - route to group regeneration logic
+				// 检测目标是否为组节点 - 路由到 startRegeneration 函数
+				// Requirements: 1.1 - 统一流式处理管道
 				if (isGroup(toNode)) {
-					await regenerateGroup(canvas, toNode, node, messages, settings, edgeLabel);
+					// 转换消息格式为 ChatMessage[]
+					// Requirements: 5.2 - 边缘标签包含在 AI 消息中
+					const chatMessages: ChatMessage[] = messages.map(m => ({
+						role: m.role,
+						content: m.content,
+					}));
+
+					// 定义生命周期回调（用于调试和 UI 更新）
+					// Requirements: 6.1, 6.2, 6.3, 6.4, 6.5 - 状态同步与回调
+					const callbacks: RegenerationCallbacks = {
+						onStart: () => {
+							console.log("[generateNote] 流式重新生成开始");
+						},
+						onNodeCreated: (nodeId: string) => {
+							console.log(`[generateNote] 节点创建: ${nodeId}`);
+						},
+						onProgress: (progress: number) => {
+							console.log(`[generateNote] 进度: ${progress}%`);
+						},
+						onComplete: () => {
+							console.log("[generateNote] 流式重新生成完成");
+						},
+						onError: (error: Error) => {
+							console.error("[generateNote] 流式重新生成错误:", error);
+						},
+					};
+
+					// 直接调用 startRegeneration 函数
+					// Requirements: 1.1 - 复用 StreamingNodeCreator
+					// Requirements: 5.1, 5.2, 5.3 - 边缘标签传递
+					await startRegeneration(
+						canvas,
+						toNode,
+						node,
+						chatMessages,
+						settings,
+						edgeLabel,
+						callbacks
+					);
 					await canvas.requestSave();
 					return;
 				}
@@ -387,324 +419,6 @@ export function noteGenerator(
 
 	// return { nextNote, generateNote };
 	return { generateNote, buildMessages };
-}
-
-/**
- * Regenerate content for a Group target
- * 使用新架构的 GroupStreamManager 和 CanvasRenderer 进行重构
- * Groups don't have setText(), so we need to clear child nodes and repopulate
- *
- * @param canvas - Canvas instance
- * @param groupNode - The group node to regenerate
- * @param fromNode - The source node for context
- * @param messages - AI messages array
- * @param settings - Plugin settings
- * @param edgeLabel - Optional edge label to use as prompt
- *
- * Requirements: 6.1, 6.2, 6.3, 6.4 - 使用新架构支持重新生成
- */
-async function regenerateGroup(
-	canvas: Canvas,
-	groupNode: CanvasNode,
-	fromNode: CanvasNode,
-	messages: any[],
-	settings: AugmentedCanvasSettings,
-	edgeLabel?: string
-): Promise<void> {
-	// 检查 API 密钥 (Requirement 4.1)
-	if (!settings.apiKey) {
-		new Notice("请在插件设置中设置 DeepSeek API 密钥");
-		return;
-	}
-
-	// 存储组边界以便保留 (Requirement 6.3 - 保留组位置)
-	const groupBounds = {
-		x: groupNode.x,
-		y: groupNode.y,
-		width: groupNode.width,
-		height: groupNode.height,
-	};
-
-	console.log("[regenerateGroup] 开始重新生成，组边界:", groupBounds);
-	console.log("[regenerateGroup] 边缘标签:", edgeLabel);
-	console.log("[regenerateGroup] 消息数量:", messages.length);
-
-	// 获取现有子节点用于两阶段删除 (Requirement 6.2 - 清除现有节点)
-	const originalChildNodes = getNodesInGroup(groupNode, canvas);
-	console.log("[regenerateGroup] 原始子节点数量:", originalChildNodes.length);
-
-	// 跟踪删除状态用于错误恢复
-	let deletedOriginals = false;
-	let accumulatedContent = "";
-	let streamingError: Error | null = null;
-
-	// 添加边缘标签到消息中 (Requirement 3.4, 5.1, 5.3)
-	const messagesWithEdgeLabel: ChatMessage[] = messages.map(m => ({
-		role: m.role,
-		content: m.content,
-	}));
-	if (edgeLabel) {
-		messagesWithEdgeLabel.push({
-			role: "user",
-			content: edgeLabel,
-		});
-	}
-
-	new Notice("正在为 Group 重新生成内容...");
-
-	// 创建配置（用于未来的完整重构）
-	// 注意：当前实现使用简化的节点创建流程
-	createConfigFromSettings(settings);
-
-	// 设置生成选项 (Requirement 6.1 - 支持 targetGroupId)
-	const generationOptions: GenerationOptions = {
-		targetGroupId: groupNode.id,
-		clearExisting: true,
-		preserveBounds: true,
-	};
-
-	// 定义生命周期回调 (Requirement 6.5 - 生命周期回调)
-	const callbacks: StreamingCallbacks = {
-		onStart: () => {
-			console.log("[regenerateGroup] 流式生成开始");
-		},
-		onProgress: (_progress: number) => {
-			// 可选：显示进度
-		},
-		onComplete: () => {
-			console.log("[regenerateGroup] 流式生成完成");
-		},
-		onError: (error: Error) => {
-			console.error("[regenerateGroup] 流式生成错误:", error);
-			streamingError = error;
-		},
-	};
-
-	// 创建 GroupStreamManager 实例 (Requirement 6.1 - 使用 GroupStreamManager)
-	const streamManager = new GroupStreamManager(callbacks);
-
-	// 设置流式响应函数
-	streamManager.setStreamResponseFunction(async (
-		apiKey: string,
-		msgs: ChatMessage[],
-		modelConfig: { max_tokens?: number; model?: string; temperature?: number },
-		callback: (chunk: string | null, error?: Error) => void
-	): Promise<void> => {
-		await streamResponse(
-			apiKey,
-			msgs as any,
-			{
-				model: modelConfig.model,
-				max_tokens: modelConfig.max_tokens,
-				temperature: modelConfig.temperature,
-			},
-			(chunk: string | null, error?: Error) => {
-				// 处理错误
-				if (error) {
-					callback(null, error);
-					return;
-				}
-
-				// 流结束
-				if (chunk === null) {
-					callback(null);
-					return;
-				}
-
-				// 第一个成功的数据块 - 安全删除原始节点（两阶段删除）
-				// 这确保了如果在任何数据到达之前发生错误，原始内容会被保留
-				if (!deletedOriginals && chunk) {
-					console.log("[regenerateGroup] 收到第一个数据块，删除原始子节点");
-					for (const node of originalChildNodes) {
-						canvas.removeNode(node);
-					}
-					deletedOriginals = true;
-				}
-
-				// 累积内容
-				accumulatedContent += chunk;
-				callback(chunk);
-			}
-		);
-	});
-
-	try {
-		// 构建模型配置
-		const modelConfig: ModelConfig = {
-			model: settings.apiModel,
-			max_tokens: settings.maxResponseTokens || undefined,
-			temperature: settings.temperature,
-		};
-
-		// 开始生成 (Requirement 6.4 - 支持重新生成)
-		await streamManager.startGeneration(
-			settings.apiKey,
-			messagesWithEdgeLabel,
-			modelConfig,
-			generationOptions
-		);
-
-		// 检查是否有流式错误
-		if (streamingError) {
-			throw streamingError;
-		}
-
-		// 解析累积的内容为节点 (Requirement 3.5)
-		const { nodes: parsedNodes, connections } = parseNodesFromMarkdown(accumulatedContent);
-		console.log("[regenerateGroup] 解析的节点数量:", parsedNodes.length);
-		console.log("[regenerateGroup] 解析的连接数量:", connections.length);
-
-		if (parsedNodes.length === 0 && accumulatedContent.trim()) {
-			// 如果没有解析到节点，创建一个包含所有内容的单节点
-			parsedNodes.push({ content: accumulatedContent });
-		}
-
-		// 计算新节点在组边界内的布局 (Requirement 3.6)
-		const nodeContents = parsedNodes.map(n => n.content);
-		const groupPadding = 60;
-		const layouts = calculateSmartLayout(nodeContents, { nodeSpacing: 40 });
-
-		// 在组内创建新节点
-		const createdNodes: CanvasNode[] = [];
-		const data = canvas.getData();
-		const newTextNodes: any[] = [];
-
-		for (let i = 0; i < parsedNodes.length; i++) {
-			const node = parsedNodes[i];
-			const layout = layouts[i];
-
-			// 在组边界内定位节点
-			const nodeX = groupBounds.x + groupPadding + layout.x;
-			const nodeY = groupBounds.y + groupPadding + layout.y;
-
-			const nodeId = randomHexString(16);
-			newTextNodes.push({
-				id: nodeId,
-				type: "text",
-				text: node.content,
-				x: nodeX,
-				y: nodeY,
-				width: layout.width,
-				height: layout.height,
-			});
-		}
-
-		// 一次性导入所有新节点
-		canvas.importData({
-			nodes: [...data.nodes, ...newTextNodes],
-			edges: data.edges,
-		});
-
-		await canvas.requestFrame();
-
-		// 获取创建的节点引用
-		for (const nodeData of newTextNodes) {
-			const createdNode = canvas.nodes.get(nodeData.id);
-			if (createdNode) {
-				createdNodes.push(createdNode);
-			}
-		}
-
-		// 根据连接信息创建子节点之间的边 (Requirement 3.7)
-		if (connections.length > 0) {
-			console.log("[regenerateGroup] 创建子节点之间的连接");
-			for (const connection of connections) {
-				if (connection.fromIndex >= 0 && connection.fromIndex < createdNodes.length &&
-					connection.toIndex >= 0 && connection.toIndex < createdNodes.length) {
-
-					const fromNodeRef = createdNodes[connection.fromIndex];
-					const toNodeRef = createdNodes[connection.toIndex];
-
-					if (fromNodeRef && toNodeRef) {
-						// 根据节点位置确定边的连接侧
-						const fromLayout = layouts[connection.fromIndex];
-						const toLayout = layouts[connection.toIndex];
-						const { fromSide, toSide } = determineEdgeSidesFromLayouts(fromLayout, toLayout);
-
-						addEdge(
-							canvas,
-							randomHexString(16),
-							{
-								fromOrTo: "from",
-								side: fromSide,
-								node: fromNodeRef,
-							},
-							{
-								fromOrTo: "to",
-								side: toSide,
-								node: toNodeRef,
-							},
-							connection.label,
-							{
-								isGenerated: true,
-							}
-						);
-					}
-				}
-			}
-		}
-
-		new Notice(`Group 重新生成完成，创建了 ${createdNodes.length} 个节点`);
-		console.log("[regenerateGroup] 成功完成");
-
-	} catch (error: any) {
-		const errorMessage = error?.message || error?.toString() || "Unknown error";
-		console.error("[regenerateGroup] 错误:", error);
-
-		// 只有在回调中没有显示过通知时才显示
-		if (!streamingError) {
-			// 错误发生在流式传输之外（例如节点创建期间）
-			if (!deletedOriginals) {
-				new Notice(`Group 重新生成出错: ${errorMessage}。原始内容已保留。`);
-			} else {
-				new Notice(`Group 重新生成出错: ${errorMessage}`);
-			}
-		} else {
-			// 流式错误
-			if (!deletedOriginals) {
-				new Notice(`Group 重新生成出错: ${errorMessage}。原始内容已保留。`);
-			} else {
-				new Notice(`Group 重新生成出错: ${errorMessage}`);
-			}
-		}
-
-		// 记录保留状态用于调试
-		if (!deletedOriginals) {
-			console.log("[regenerateGroup] 由于错误，原始子节点已保留");
-		} else {
-			console.log("[regenerateGroup] 原始子节点在错误发生前已被删除");
-		}
-	}
-}
-
-/**
- * Determine edge sides based on relative positions of two node layouts
- */
-function determineEdgeSidesFromLayouts(
-	fromLayout: NodeLayout,
-	toLayout: NodeLayout
-): { fromSide: string; toSide: string } {
-	const fromCenterX = fromLayout.x + fromLayout.width / 2;
-	const fromCenterY = fromLayout.y + fromLayout.height / 2;
-	const toCenterX = toLayout.x + toLayout.width / 2;
-	const toCenterY = toLayout.y + toLayout.height / 2;
-
-	const deltaX = toCenterX - fromCenterX;
-	const deltaY = toCenterY - fromCenterY;
-
-	if (Math.abs(deltaX) > Math.abs(deltaY)) {
-		if (deltaX > 0) {
-			return { fromSide: "right", toSide: "left" };
-		} else {
-			return { fromSide: "left", toSide: "right" };
-		}
-	} else {
-		if (deltaY > 0) {
-			return { fromSide: "bottom", toSide: "top" };
-		} else {
-			return { fromSide: "top", toSide: "bottom" };
-		}
-	}
 }
 
 export function getTokenLimit(settings: AugmentedCanvasSettings) {

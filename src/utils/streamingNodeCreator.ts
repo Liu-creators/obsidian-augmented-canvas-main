@@ -194,6 +194,62 @@ export class StreamingNodeCreator {
 	}
 
 	/**
+	 * 重置组尺寸到初始值
+	 * 用于实现"收缩后增长"行为
+	 *
+	 * 关键行为：
+	 * - 使用与创建时相同的初始尺寸（400x300）
+	 * - 保持锚点位置（x, y）不变
+	 * - 触发 canvas.requestFrame() 更新布局，使连接边缘 snap 到收缩后的组
+	 *
+	 * @param groupNode - 组节点
+	 * @param initialWidth - 初始宽度（默认 400，与创建时一致）
+	 * @param initialHeight - 初始高度（默认 300，与创建时一致）
+	 *
+	 * Requirements: 2.1, 2.2, 2.3 - 收缩后增长行为
+	 */
+	public async resetGroupToInitialSize(
+		groupNode: CanvasNode,
+		initialWidth: number = 400,
+		initialHeight: number = 300
+	): Promise<void> {
+		// 检查是否为组节点
+		const data = groupNode.getData();
+		if (data.type !== "group") {
+			console.warn(`[StreamingNodeCreator] resetGroupToInitialSize called on non-group node`);
+			return;
+		}
+
+		// 保存原始锚点位置（x, y 不变）
+		const anchorX = groupNode.x;
+		const anchorY = groupNode.y;
+		const oldWidth = groupNode.width;
+		const oldHeight = groupNode.height;
+
+		// 重置尺寸到初始值，保持锚点位置不变
+		// Requirements: 2.1 - 立即重置组容器尺寸到初始默认值
+		// Requirements: 2.2 - 不保持旧的计算尺寸
+		groupNode.setData({
+			width: initialWidth,
+			height: initialHeight
+			// 注意：不设置 x 和 y，保持锚点位置不变
+		});
+
+		// 更新锚点状态（如果存在）
+		if (this.anchorState) {
+			// 锚点位置保持不变，只是确认状态一致
+			this.anchorState.anchorX = anchorX;
+			this.anchorState.anchorY = anchorY;
+		}
+
+		// 触发布局更新，使连接边缘 snap 到收缩后的组
+		// Requirements: 2.3 - 触发立即布局更新
+		await this.canvas.requestFrame();
+
+		console.log(`[StreamingNodeCreator] Group reset to initial size: ${oldWidth}x${oldHeight} -> ${initialWidth}x${initialHeight}, anchor preserved at (${anchorX}, ${anchorY})`);
+	}
+
+	/**
 	 * Calculate node position anchored to pre-created group
 	 * Uses dynamic stack layout: Y position based on actual heights of nodes above
 	 *
@@ -297,7 +353,7 @@ export class StreamingNodeCreator {
 			this.config.edgeLabelSafeZone
 		);
 
-		console.log(`[StreamingNodeCreator] Calculated position for node ${nodeXML.id}: (${position.x}, ${position.y}) from grid (${row}, ${col}), normalized (${normalizedRow}, ${normalizedCol}), height=${initialHeight}, edgeDirection=${this.anchorState.edgeDirection}, topSafeZone=${topSafeZone}, leftSafeZone=${leftSafeZone}, headerClearance=${this.config.groupHeaderHeight + this.config.paddingTop}`);
+		console.log(`[StreamingNodeCreator] Calculated position for node ${nodeXML.id}: (${position.x}, ${position.y}) from grid (${row}, ${col}), normalized (${normalizedRow}, ${normalizedCol}), height=${initialHeight}, edgeDirection=${this.anchorState.edgeDirection}, topSafeZone=${topSafeZone}, leftSafeZone=${leftSafeZone}, headerClearance=${this.config.groupHeaderHeight + this.config.groupPadding + topSafeZone}`);
 
 		return position;
 	}
@@ -989,6 +1045,8 @@ export class StreamingNodeCreator {
 
 			this.canvas.addNode(newNode);
 
+			// 在重新生成模式下，第一个节点创建成功时触发删除原始节点
+			// Requirements: 3.1, 3.3 - 两阶段删除安全机制
 			// Store node
 			this.createdNodeMap.set(nodeXML.id, newNode);
 			this.nodePositions.set(nodeXML.id, { x: pixelPos.x, y: pixelPos.y });

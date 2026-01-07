@@ -49,22 +49,14 @@ export const LAYOUT_CONSTANTS = {
 	/** 边缘标签的安全区域边距（像素）
 	 * Requirements: 5.8
 	 */
-	EDGE_LABEL_SAFE_ZONE: 40,
+	EDGE_LABEL_SAFE_ZONE: 0,
 
 	/** 组标题栏/头部区域的高度（像素）
 	 * Requirements: 5.6 - GROUP_HEADER_HEIGHT 至少为 40 像素
 	 */
-	GROUP_HEADER_HEIGHT: 40,
+	GROUP_HEADER_HEIGHT: 100,
 
-	/** 组内部头部下方的顶部内边距（像素）
-	 * Requirements: 5.7
-	 */
-	PADDING_TOP: 80,
 
-	/** 组内部的底部内边距（像素）
-	 * Requirements: 5.7
-	 */
-	PADDING_BOTTOM: 20,
 
 	/** 默认节点宽度（像素）
 	 * Requirements: 5.2
@@ -132,15 +124,7 @@ export interface GroupGenerationConfig {
 	 */
 	groupHeaderHeight: number;
 
-	/** 顶部内边距（像素）
-	 * Requirements: 5.7
-	 */
-	paddingTop: number;
 
-	/** 底部内边距（像素）
-	 * Requirements: 5.7
-	 */
-	paddingBottom: number;
 
 	/** 最大网格坐标值
 	 */
@@ -154,13 +138,11 @@ export interface GroupGenerationConfig {
 export const DEFAULT_CONFIG: GroupGenerationConfig = {
 	nodeWidth: LAYOUT_CONSTANTS.DEFAULT_NODE_WIDTH,
 	nodeHeight: LAYOUT_CONSTANTS.DEFAULT_NODE_HEIGHT,
-	groupPadding: 40,
+	groupPadding: 20,
 	verticalGap: LAYOUT_CONSTANTS.VERTICAL_GAP,
 	horizontalGap: LAYOUT_CONSTANTS.HORIZONTAL_GAP,
 	edgeLabelSafeZone: LAYOUT_CONSTANTS.EDGE_LABEL_SAFE_ZONE,
 	groupHeaderHeight: LAYOUT_CONSTANTS.GROUP_HEADER_HEIGHT,
-	paddingTop: LAYOUT_CONSTANTS.PADDING_TOP,
-	paddingBottom: LAYOUT_CONSTANTS.PADDING_BOTTOM,
 	maxGridCoord: LAYOUT_CONSTANTS.MAX_GRID_COORD,
 };
 
@@ -207,8 +189,6 @@ export function createConfig(settings?: Partial<GroupGenerationConfig>): GroupGe
 		horizontalGap: settings.horizontalGap ?? DEFAULT_CONFIG.horizontalGap,
 		edgeLabelSafeZone: settings.edgeLabelSafeZone ?? DEFAULT_CONFIG.edgeLabelSafeZone,
 		groupHeaderHeight: settings.groupHeaderHeight ?? DEFAULT_CONFIG.groupHeaderHeight,
-		paddingTop: settings.paddingTop ?? DEFAULT_CONFIG.paddingTop,
-		paddingBottom: settings.paddingBottom ?? DEFAULT_CONFIG.paddingBottom,
 		maxGridCoord: settings.maxGridCoord ?? DEFAULT_CONFIG.maxGridCoord,
 	};
 }

@@ -39,17 +39,7 @@ describe("LAYOUT_CONSTANTS", () => {
 		expect(LAYOUT_CONSTANTS.GROUP_HEADER_HEIGHT).toBeGreaterThanOrEqual(40);
 	});
 
-	// Requirements: 5.7 - PADDING_TOP 常量
-	it("should define PADDING_TOP as a number", () => {
-		expect(typeof LAYOUT_CONSTANTS.PADDING_TOP).toBe("number");
-		expect(LAYOUT_CONSTANTS.PADDING_TOP).toBe(80);
-	});
 
-	// Requirements: 5.7 - PADDING_BOTTOM 常量
-	it("should define PADDING_BOTTOM as a number", () => {
-		expect(typeof LAYOUT_CONSTANTS.PADDING_BOTTOM).toBe("number");
-		expect(LAYOUT_CONSTANTS.PADDING_BOTTOM).toBe(20);
-	});
 
 	// Requirements: 5.2 - DEFAULT_NODE_WIDTH 常量
 	it("should define DEFAULT_NODE_WIDTH as a number", () => {
@@ -78,8 +68,6 @@ describe("LAYOUT_CONSTANTS", () => {
 		expect(keys).toContain("HORIZONTAL_GAP");
 		expect(keys).toContain("EDGE_LABEL_SAFE_ZONE");
 		expect(keys).toContain("GROUP_HEADER_HEIGHT");
-		expect(keys).toContain("PADDING_TOP");
-		expect(keys).toContain("PADDING_BOTTOM");
 		expect(keys).toContain("DEFAULT_NODE_WIDTH");
 		expect(keys).toContain("DEFAULT_NODE_HEIGHT");
 		expect(keys).toContain("MAX_GRID_COORD");
@@ -96,8 +84,6 @@ describe("DEFAULT_CONFIG", () => {
 		expect(DEFAULT_CONFIG).toHaveProperty("horizontalGap");
 		expect(DEFAULT_CONFIG).toHaveProperty("edgeLabelSafeZone");
 		expect(DEFAULT_CONFIG).toHaveProperty("groupHeaderHeight");
-		expect(DEFAULT_CONFIG).toHaveProperty("paddingTop");
-		expect(DEFAULT_CONFIG).toHaveProperty("paddingBottom");
 		expect(DEFAULT_CONFIG).toHaveProperty("maxGridCoord");
 	});
 
@@ -108,8 +94,6 @@ describe("DEFAULT_CONFIG", () => {
 		expect(DEFAULT_CONFIG.horizontalGap).toBe(LAYOUT_CONSTANTS.HORIZONTAL_GAP);
 		expect(DEFAULT_CONFIG.edgeLabelSafeZone).toBe(LAYOUT_CONSTANTS.EDGE_LABEL_SAFE_ZONE);
 		expect(DEFAULT_CONFIG.groupHeaderHeight).toBe(LAYOUT_CONSTANTS.GROUP_HEADER_HEIGHT);
-		expect(DEFAULT_CONFIG.paddingTop).toBe(LAYOUT_CONSTANTS.PADDING_TOP);
-		expect(DEFAULT_CONFIG.paddingBottom).toBe(LAYOUT_CONSTANTS.PADDING_BOTTOM);
 		expect(DEFAULT_CONFIG.maxGridCoord).toBe(LAYOUT_CONSTANTS.MAX_GRID_COORD);
 	});
 });
@@ -154,8 +138,6 @@ describe("createConfig", () => {
 			horizontalGap: 100,
 			edgeLabelSafeZone: 50,
 			groupHeaderHeight: 50,
-			paddingTop: 100,
-			paddingBottom: 30,
 			maxGridCoord: 200,
 		};
 

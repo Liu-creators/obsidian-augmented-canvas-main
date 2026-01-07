@@ -272,11 +272,11 @@ describe("Property 5: Dynamic Height Stacking", () => {
 	 *
 	 * 对于任何具有不同实际高度的节点列，每个节点的 Y 位置应等于
 	 * 前一个节点的 Y 位置加上前一个节点的实际高度加上配置的垂直间距。
-	 * 第一个节点的 Y 位置应等于锚点 Y 加上头部高度加上顶部内边距加上任何适用的安全区域。
+	 * 第一个节点的 Y 位置应等于锚点 Y 加上头部高度加上任何适用的安全区域。
 	 *
 	 * **Validates: Requirements 3.5, 3.6**
 	 */
-	it("should position first node at anchorY + headerHeight + paddingTop + safeZone", () => {
+	it("should position first node at anchorY + headerHeight + safeZone", () => {
 		fc.assert(
 			fc.property(
 				anchorStateArb,
@@ -303,7 +303,6 @@ describe("Property 5: Dynamic Height Stacking", () => {
 					// 预期 Y 位置
 					const expectedY = anchorState.anchorY +
 						config.groupHeaderHeight +
-						config.paddingTop +
 						topSafeZone;
 
 					expect(position.y).toBe(expectedY);
@@ -820,7 +819,7 @@ describe("Property 6: Configuration Usage", () => {
 					const existingNode: ColumnNodeInfo = {
 						nodeId: "node_0",
 						row: 0,
-						y: anchorState.anchorY + config1.groupHeaderHeight + config1.paddingTop,
+						y: anchorState.anchorY + config1.groupHeaderHeight,
 						actualHeight: 200,
 					};
 
@@ -944,24 +943,20 @@ describe("Property 6: Configuration Usage", () => {
 		);
 	});
 
-	it("should use groupHeaderHeight and paddingTop from config for first row", () => {
+	it("should use groupHeaderHeight from config for first row", () => {
 		fc.assert(
 			fc.property(
-				// 生成不同的头部高度和顶部内边距
-				fc.integer({ min: 20, max: 100 }),
-				fc.integer({ min: 40, max: 150 }),
+				// 生成不同的头部高度
 				fc.integer({ min: 20, max: 100 }),
 				fc.integer({ min: 40, max: 150 }),
 				anchorStateArb,
-				(header1, padding1, header2, padding2, anchorState) => {
+				(header1, header2, anchorState) => {
 					// 确保配置不同
 					const config1 = createConfig({
 						groupHeaderHeight: header1,
-						paddingTop: padding1,
 					});
 					const config2 = createConfig({
 						groupHeaderHeight: header2,
-						paddingTop: padding2,
 					});
 
 					const columnTracks = new Map<number, ColumnTrack>();
@@ -986,13 +981,13 @@ describe("Property 6: Configuration Usage", () => {
 					);
 
 					// 验证 Y 位置使用了配置中的值
-					// 第一行公式: y = anchorY + groupHeaderHeight + paddingTop + topSafeZone
+					// 第一行公式: y = anchorY + groupHeaderHeight + padding + topSafeZone
 					const topSafeZone = anchorState.edgeDirection === "top"
 						? config1.edgeLabelSafeZone
 						: 0;
 
-					const expectedY1 = anchorState.anchorY + header1 + padding1 + topSafeZone;
-					const expectedY2 = anchorState.anchorY + header2 + padding2 + topSafeZone;
+					const expectedY1 = anchorState.anchorY + header1 + config1.groupPadding + topSafeZone;
+					const expectedY2 = anchorState.anchorY + header2 + config2.groupPadding + topSafeZone;
 
 					expect(pos1.y).toBe(expectedY1);
 					expect(pos2.y).toBe(expectedY2);
@@ -1065,22 +1060,22 @@ describe("Property 6: Configuration Usage", () => {
 		);
 	});
 
-	it("should use paddingBottom from config in group bounds calculation", () => {
+	it("should use edgeLabelSafeZone from config in group bounds calculation", () => {
 		fc.assert(
 			fc.property(
-				// 生成不同的底部内边距
+				// 生成不同的 groupPadding 值
 				fc.integer({ min: 10, max: 100 }),
 				fc.integer({ min: 10, max: 100 }),
 				fc.integer({ min: 0, max: 5000 }),
 				fc.integer({ min: 0, max: 5000 }),
 				(padding1, padding2, anchorX, anchorY) => {
 					// 确保两个内边距值不同
-					const paddingBottom1 = padding1;
-					const paddingBottom2 = padding1 === padding2 ? padding2 + 10 : padding2;
+					const groupPadding1 = padding1;
+					const groupPadding2 = padding1 === padding2 ? padding2 + 10 : padding2;
 
 					// 创建两个不同配置
-					const config1 = createConfig({ paddingBottom: paddingBottom1 });
-					const config2 = createConfig({ paddingBottom: paddingBottom2 });
+					const config1 = createConfig({ groupPadding: groupPadding1 });
+					const config2 = createConfig({ groupPadding: groupPadding2 });
 
 					const anchorState: AnchorState = {
 						anchorX,
@@ -1121,15 +1116,18 @@ describe("Property 6: Configuration Usage", () => {
 						config2
 					);
 
-					// 如果底部内边距不同，高度应该不同
-					if (paddingBottom1 !== paddingBottom2) {
+					// 如果内边距不同，宽度和高度应该不同
+					if (groupPadding1 !== groupPadding2) {
+						expect(result1.width).not.toBe(result2.width);
 						expect(result1.height).not.toBe(result2.height);
 					}
 
-					// 验证高度差异与内边距差异一致
-					const expectedDiff = paddingBottom2 - paddingBottom1;
-					const actualDiff = result2.height - result1.height;
-					expect(actualDiff).toBe(expectedDiff);
+					// 验证差异与内边距差异一致
+					const expectedDiff = groupPadding2 - groupPadding1;
+					const actualWidthDiff = result2.width - result1.width;
+					const actualHeightDiff = result2.height - result1.height;
+					expect(actualWidthDiff).toBe(expectedDiff);
+					expect(actualHeightDiff).toBe(expectedDiff);
 				}
 			),
 			{ numRuns: 100 }
@@ -1209,9 +1207,8 @@ describe("Property 6: Configuration Usage", () => {
 			fc.property(
 				// 生成配置值
 				fc.integer({ min: 50, max: 150 }),
-				fc.integer({ min: 50, max: 150 }),
 				fc.integer({ min: 20, max: 80 }),
-				fc.integer({ min: 20, max: 80 }),
+				fc.integer({ min: 40, max: 100 }),
 				anchorStateArb,
 				// 生成多个节点的行列坐标
 				fc.array(
@@ -1221,13 +1218,12 @@ describe("Property 6: Configuration Usage", () => {
 					}),
 					{ minLength: 3, maxLength: 10 }
 				),
-				(vGap, hGap, headerHeight, paddingTop, anchorState, nodeCoords) => {
+				(vGap, hGap, headerHeight, anchorState, nodeCoords) => {
 					// 创建配置
 					const config = createConfig({
 						verticalGap: vGap,
 						horizontalGap: hGap,
 						groupHeaderHeight: headerHeight,
-						paddingTop: paddingTop,
 					});
 
 					const columnTracks = new Map<number, ColumnTrack>();
@@ -1259,12 +1255,12 @@ describe("Property 6: Configuration Usage", () => {
 					});
 
 					// 验证所有位置都使用了配置中的值
-					// 第一行的 Y 位置应该使用 headerHeight 和 paddingTop
+					// 第一行的 Y 位置应该使用 headerHeight + groupPadding
 					const firstRowPositions = positions.filter(p => p.row === 0);
 					const topSafeZone = anchorState.edgeDirection === "top"
 						? config.edgeLabelSafeZone
 						: 0;
-					const expectedFirstRowY = anchorState.anchorY + headerHeight + paddingTop + topSafeZone;
+					const expectedFirstRowY = anchorState.anchorY + headerHeight + config.groupPadding + topSafeZone;
 
 					for (const pos of firstRowPositions) {
 						expect(pos.y).toBe(expectedFirstRowY);
