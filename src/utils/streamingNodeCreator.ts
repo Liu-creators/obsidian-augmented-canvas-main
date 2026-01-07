@@ -190,7 +190,13 @@ export class StreamingNodeCreator {
 		this.columnTracks.clear();
 		this.nodeActualSizes.clear();
 
-		console.log(`[StreamingNodeCreator] Anchor locked at (${group.x}, ${group.y}) for group ${semanticId}, edgeDirection=${edgeDirection}`);
+		console.log(`[StreamingNodeCreator] ========== 预创建组设置 ==========`);
+		console.log(`[StreamingNodeCreator] 组 ID: ${semanticId}`);
+		console.log(`[StreamingNodeCreator] 锚点位置: (${group.x}, ${group.y})`);
+		console.log(`[StreamingNodeCreator] 组尺寸: ${group.width} x ${group.height}`);
+		console.log(`[StreamingNodeCreator] 边缘方向: ${edgeDirection}`);
+		console.log(`[StreamingNodeCreator] 用户问题: ${userQuestion || "(无)"}`);
+		console.log(`[StreamingNodeCreator] =====================================`);
 	}
 
 	/**

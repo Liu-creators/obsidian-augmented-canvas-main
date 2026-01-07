@@ -56,8 +56,6 @@ export const LAYOUT_CONSTANTS = {
 	 */
 	GROUP_HEADER_HEIGHT: 100,
 
-
-
 	/** 默认节点宽度（像素）
 	 * Requirements: 5.2
 	 */
@@ -123,8 +121,6 @@ export interface GroupGenerationConfig {
 	 * Requirements: 5.6
 	 */
 	groupHeaderHeight: number;
-
-
 
 	/** 最大网格坐标值
 	 */

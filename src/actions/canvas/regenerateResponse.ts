@@ -12,61 +12,66 @@ import { logDebug } from "../../logDebug";
 
 /**
  * 重新生成的系统提示 - XML 格式
- * 与 generateGroup.ts 中的 SYSTEM_PROMPT_SMART_EXPAND_XML 保持一致
+ * 基于用户之前的提示词，修改为重新生成场景
+ * 
+ * 关键修改：组的坐标从 row="0" col="1" 改为 row="0" col="0"
  * 
  * Requirements: 1.1 - 统一流式处理管道
  */
 const SYSTEM_PROMPT_REGENERATE_XML = `
-You are an intelligent canvas assistant.
-Goal: Regenerate content for an existing group based on the user's instruction.
+You are an Intelligent Canvas Architect.
+Goal: Parse input content into a structured graph using the following logic protocols.
 
-IMPORTANT: This is a GROUP regeneration request. You MUST wrap all generated nodes inside a <group> element.
-The user's question will be displayed on the edge connecting the source node to the group.
+### 1. OBJECT DEFINITION
+- Scope: ALL output must be wrapped in <group id="g1" title="..." row="0" col="0">...</group>.
+- Node: <node id="..." type="..." row="int" col="int">Markdown</node> (Unit of content).
+- Edge: <edge from="..." to="..." label="..." /> (Logical connection).
+- Space: Relative coordinates to Group Center (0,0).
 
-OUTPUT FORMAT (XML):
-1. **ALWAYS wrap all generated nodes in a <group>** - This is required for group generation.
-2. Use <group id="g1" title="..." row="0" col="0">...</group> to contain all nodes.
-3. Inside the group, use <node id="..." type="..." title="..." row="Int" col="Int">Markdown</node>.
-4. Node coordinates inside the group are relative to the group's position (use small values like 0, 1, 2).
+### 2. LOGIC PROTOCOLS
+Analyze the relationship between items to select the strategy:
 
-TYPE RULES (affects node color):
-- default: General text (Gray, use when unsure)
-- concept: Key ideas/concepts (Orange)
-- step: Steps/procedures/implementation (Blue)
-- resource: Resources/files/references (Green)
-- warning: Risks/errors/caveats (Red)
-- insight: Insights/conclusions/summaries (Purple)
-- question: Questions/TODOs/discussion points (Yellow)
+CASE A: Strong Logical Connection (Time, Cause, Dependency)
+- Rule: MUST use <edge>.
+- Layout:
+  - Sequential: Flow Right (col+1) or Down (row+1).
+  - Branching: Distribute vertically (row-1, row+1) while flowing Right.
+- Example: Step 1 -> Step 2 -> Outcome.
 
-COORDINATE GUIDELINES:
-- Use row=0, col=0 for the first/main node
-- Use row=1, col=0 for nodes below
-- Use row=0, col=1 for nodes to the right
-- Use row=1, col=1 for diagonal placement
+CASE B: Weak/Parallel Connection (Categories, Lists, Aspects)
+- Rule: FORBID <edge>. Use Spatial Positioning only.
+- Layout: Distribute in Quadrants or Grid around center.
+  - Top-Left: (-1,-1) | Top-Right: (-1,1)
+  - Btm-Left: (1,-1)  | Btm-Right: (1,1)
+- Example: 4 Pros & Cons; 3 different Departments.
 
-CONTENT GUIDELINES:
-- Each node can contain full Markdown: **bold**, *italic*, lists, code blocks, links
-- Keep nodes focused (2-5 paragraphs each)
-- Create 2-6 nodes depending on instruction complexity
-- Node titles are optional but recommended for clarity
-- Use the same language as the user's instruction
+CASE C: Hybrid (Process with Details)
+- Rule: Use Edges for the main spine; use Coordinates for attached details.
+- Layout: Main Node (0,0) -> Detail Node (1,0) [No edge, just proximity].
 
-Example Output:
-<group id="g1" title="Generated Content" row="0" col="0">
-    <node id="n1" type="concept" title="First Concept" row="0" col="0">
-    First concept content...
-    </node>
-    
-    <node id="n2" type="step" title="Implementation" row="1" col="0">
-    Implementation steps...
-    </node>
-    
-    <node id="n3" type="insight" title="Conclusion" row="2" col="0">
-    Final insights...
-    </node>
+### 3. RENDERING PROTOCOLS
+- Order:
+  - If connected: Node A -> Edge -> Node B.
+  - If independent: Node A -> Node B -> Node C.
+- Node Types (Coloring):
+  - concept (Orange): Core ideas
+  - step (Blue): Action items
+  - warning (Red): Risks
+  - insight (Purple): Summaries
+  - default (Gray): General text
+
+### 4. XML STRUCTURE EXAMPLE
+<group id="g1" title="Logic Map" row="0" col="0">
+  <!-- Example: Causal Flow -->
+  <node id="n1" type="concept" row="0" col="0">Core Problem</node>
+  <edge from="n1" to="n2" label="causes" />
+  <node id="n2" type="warning" row="0" col="1">Resulting Risk</node>
+  
+  <!-- Example: Detail Context (No Edge, placed below) -->
+  <node id="n3" type="default" row="1" col="0">Context info for Problem</node>
 </group>
 
-Note: All nodes must be inside the group with id="g1". The group coordinates should be row="0" col="0" since this is a regeneration.
+IMPORTANT: This is a REGENERATION request. The group already exists, so use row="0" col="0" for the group coordinates.
 `.trim();
 
 /**
@@ -154,7 +159,22 @@ export async function startRegeneration(
 	const originalChildNodes = getNodesInGroup(groupNode, canvas);
 	console.log("[startRegeneration] 原始子节点数量:", originalChildNodes.length);
 
-	// 阶段 3: 【立即删除原始子节点】
+	// 【关键修复】阶段 3: 在重置尺寸之前计算边缘方向
+	// Requirements: 2.1 - 边缘安全区域计算
+	// 
+	// 重要：必须在组尺寸重置之前计算边缘方向，因为：
+	// 1. determineEdgeDirection 使用组的中心点来计算方向
+	// 2. 重置尺寸会改变组的中心点位置
+	// 3. 使用改变后的中心点会导致计算出错误的边缘方向
+	// 4. 错误的边缘方向会导致安全区域应用错误，进而导致节点位置计算错误
+	const originalWidth = groupNode.width;
+	const originalHeight = groupNode.height;
+	console.log("[startRegeneration] 原始组尺寸:", { width: originalWidth, height: originalHeight });
+	
+	const edgeDirection: EdgeDirection = determineEdgeDirection(fromNode, groupNode);
+	console.log("[startRegeneration] 边缘方向（重置前计算）:", edgeDirection);
+
+	// 阶段 4: 【立即删除原始子节点】
 	// Requirements: 3.1 - 立即删除所有原始子节点
 	console.log("[startRegeneration] 立即删除原始子节点...");
 	for (const node of originalChildNodes) {
@@ -162,7 +182,7 @@ export async function startRegeneration(
 	}
 	console.log("[startRegeneration] 原始子节点已删除");
 
-	// 阶段 4: 收缩组到初始尺寸
+	// 阶段 5: 收缩组到初始尺寸
 	// Requirements: 2.1, 2.2, 2.3 - 收缩后增长行为
 	const initialWidth = 400;
 	const initialHeight = 300;
@@ -192,19 +212,18 @@ export async function startRegeneration(
 
 	new Notice("正在为 Group 重新生成内容...");
 
-	// 阶段 5: 创建 StreamingNodeCreator 实例
+	// 阶段 6: 创建 StreamingNodeCreator 实例
 	// Requirements: 1.1 - 复用 StreamingNodeCreator（与 generateGroup.ts 相同）
 	const nodeCreator = new StreamingNodeCreator(canvas, fromNode, settings);
 
-	// 设置预创建组
+	// 设置预创建组（使用之前计算的边缘方向）
 	const preCreatedGroupSemanticId = "g1";
-	const edgeDirection: EdgeDirection = determineEdgeDirection(fromNode, groupNode);
 	nodeCreator.setPreCreatedGroup(
 		groupNode,
 		preCreatedGroupSemanticId,
 		"", // mainEdgeId - 重新生成时边缘已存在
 		edgeLabel || "",
-		edgeDirection
+		edgeDirection // 使用在重置前计算的边缘方向
 	);
 
 	// 初始化增量 XML 解析器（与 generateGroup.ts 相同）
@@ -214,7 +233,7 @@ export async function startRegeneration(
 	let nodeCount = 0;
 
 	try {
-		// 阶段 6: 流式生成（完全复用 generateGroup.ts 的逻辑）
+		// 阶段 7: 流式生成（完全复用 generateGroup.ts 的逻辑）
 		// Requirements: 1.1, 1.2 - 使用相同的流式处理逻辑
 		await streamResponse(
 			settings.apiKey,
@@ -297,7 +316,7 @@ export async function startRegeneration(
 			}
 		);
 
-		// 阶段 7: 流完成后的处理（与 generateGroup.ts 相同）
+		// 阶段 8: 流完成后的处理（与 generateGroup.ts 相同）
 		await sleep(200);
 
 		// 处理剩余内容
@@ -332,7 +351,7 @@ export async function startRegeneration(
 		const edgeCount = await nodeCreator.createAllEdges();
 		await canvas.requestFrame();
 
-		// 阶段 8: 最终边界调整
+		// 阶段 9: 最终边界调整
 		// Requirements: 4.4 - 流完成后进行最终边界计算
 		const nodesInGroup = getNodesInGroup(groupNode, canvas);
 		if (nodesInGroup.length > 0) {
@@ -385,6 +404,12 @@ export async function startRegeneration(
 /**
  * 确定边缘方向（从源节点到目标组）
  * 用于安全区域计算
+ * 
+ * 返回值语义：
+ * - "top": 边缘从组的顶部连接进来（组在源节点下方）
+ * - "bottom": 边缘从组的底部连接进来（组在源节点上方）
+ * - "left": 边缘从组的左侧连接进来（组在源节点右侧）
+ * - "right": 边缘从组的右侧连接进来（组在源节点左侧）
  */
 function determineEdgeDirection(fromNode: CanvasNode, toNode: CanvasNode): EdgeDirection {
 	const fromCenterX = fromNode.x + fromNode.width / 2;
@@ -395,11 +420,25 @@ function determineEdgeDirection(fromNode: CanvasNode, toNode: CanvasNode): EdgeD
 	const deltaX = toCenterX - fromCenterX;
 	const deltaY = toCenterY - fromCenterY;
 
+	console.log("[determineEdgeDirection] 详细计算:");
+	console.log("  源节点中心:", { x: fromCenterX, y: fromCenterY });
+	console.log("  目标组中心:", { x: toCenterX, y: toCenterY });
+	console.log("  Delta:", { deltaX, deltaY });
+	console.log("  绝对值:", { absDeltaX: Math.abs(deltaX), absDeltaY: Math.abs(deltaY) });
+
+	let direction: EdgeDirection;
 	if (Math.abs(deltaX) > Math.abs(deltaY)) {
-		return deltaX > 0 ? "left" : "right";
+		// 水平方向为主
+		direction = deltaX > 0 ? "left" : "right";
+		console.log("  主方向: 水平", deltaX > 0 ? "(组在右侧)" : "(组在左侧)");
 	} else {
-		return deltaY > 0 ? "top" : "bottom";
+		// 垂直方向为主
+		direction = deltaY > 0 ? "top" : "bottom";
+		console.log("  主方向: 垂直", deltaY > 0 ? "(组在下方)" : "(组在上方)");
 	}
+	
+	console.log("  最终边缘方向:", direction);
+	return direction;
 }
 
 /**
